@@ -102,7 +102,7 @@ details[open] summary{margin-bottom:12px}
   <div class="land">
     <h1>The Forecast</h1>
     <form id="lform" autocomplete="off">
-      <input id="city" type="text" placeholder="City" aria-label="City" spellcheck="false">
+      <input id="city" type="text" placeholder="City" aria-label="City" spellcheck="false" autocomplete="off">
       <button id="begin" type="submit">Begin</button>
     </form>
     <p id="lmsg" role="status"></p>
@@ -1146,7 +1146,9 @@ else (function(){
   }
 
   // ---------- landing ----------
-  var last=store.get("city"); if(last) $("city").value=last;
+  try{ localStorage.removeItem("forecast3.city"); }catch(e){}   // the city box starts empty on every visit
+  $("city").value="";
+  window.addEventListener("pageshow",function(){ if(!$("stage").classList.contains("on")) $("city").value=""; });
   function msg(t,bad){ $("lmsg").textContent=t||""; $("lmsg").className=bad?"bad":""; }
 
   $("lform").addEventListener("submit",function(e){
@@ -1159,7 +1161,7 @@ else (function(){
     geocode(q).then(function(P){
       $("begin").disabled=false;
       if(!P){ msg("No place called \u201C"+q+"\u201D was found. Check the spelling, or add the country after a comma.",true); Score.stop(); return; }
-      store.set("city",q); msg(""); start(P);
+      msg(""); start(P);
     }, function(){
       $("begin").disabled=false; Score.stop();
       msg("The city search could not be reached. Check the internet connection and try again. To rehearse offline, type rehearsal as the city.",true);
