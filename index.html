@@ -1128,6 +1128,9 @@ else (function(){
   // ---------- census inputs ----------
   var CEN=null;   // the figures the census uses, set when the city is chosen; shown in the panel, not editable
   function readCensus(){ return CEN; }
+  // Lines about death ring the toll as they appear.
+  var DEATH=/\b(die|dies|died|dying|dead|death|deaths|cemetery|grave|graves|buried|mourners|ancestors|funeral)\b/i;
+  function tollFor(t){ if(t && DEATH.test(t)) Score.toll(); }
   function updateToll(){ var c=readCensus(); Score.setDeathRate(c? c.pop*c.dr/1000/365.25/86400000 : 0); }
   function fillCensus(P){
     var r=RATES[P.country_code]||RATES["*"], pop=P.population? Math.round(P.population) : 0;
@@ -1269,14 +1272,14 @@ else (function(){
         withTimeout(r,6000).then(function(v){ return v; }, function(){ return null; }).then(function(v){
           waiting=false; if(idx!==at) return;
           if(v==null){ drop(); return; }
-          ln.t=v; ln.done=true; lastShown=Date.now(); render(); typeLine();
+          ln.t=v; ln.done=true; lastShown=Date.now(); render(); typeLine(); tollFor(ln.t);
         });
         return;
       }
       if(r==null){ drop(); return; }
       ln.t=r; ln.done=true;
     }
-    lastShown=t; render(); typeLine();
+    lastShown=t; render(); typeLine(); tollFor(ln.t);
   }
   function drop(){
     var gone=lines.splice(idx,1)[0]; if(gone.gap && lines[idx]) lines[idx].gap=true;
@@ -1456,9 +1459,6 @@ else (function(){
       timers.push(setInterval(function(){               // harmonics
         if(P.harmonics>0.01 && Math.random()<P.harmonics*0.3) harmonic();
       },2500));
-      timers.push(setInterval(function(){               // toll: one stroke per estimated death in the city
-        if(deathRate>0 && P.toll>0.01 && Math.random() < 1-Math.exp(-deathRate*1000)) bell(root()*2, 0.12+P.toll*0.35, 14);
-      },1000));
     }
 
     return {
@@ -1477,6 +1477,8 @@ else (function(){
       },
       mute:function(m){ muted=m; if(ac&&running) N.master.gain.setTargetAtTime(out(), ac.currentTime, 0.3); },
       setDeathRate:function(perMs){ deathRate=perMs; },
+      // the toll: one soft, low stroke when a line about death appears on screen
+      toll:function(){ if(!ac||!running||muted||!(P.toll>0.01)) return; bell(root()*2, 0.06+P.toll*0.28, 14); },
       get:function(k){ return P[k]; }
     };
   })();
