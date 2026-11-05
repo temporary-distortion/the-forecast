@@ -83,7 +83,8 @@ button,input,select{font:inherit;color:inherit}
 .sl output{font-family:var(--mono);font-size:11px;color:var(--ash);text-align:right;font-variant-numeric:tabular-nums}
 .hint{font-size:12px;line-height:1.45;color:var(--ash);margin:0}
 .fld{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px 10px;align-items:center}
-.fld label{font-size:13px}
+.fld label,.fld span{font-size:13px}
+.fld .val{font-family:var(--mono);font-size:12px;color:var(--paper);text-align:right;font-variant-numeric:tabular-nums}
 .fld input,.fld select{background:var(--ground);border:1px solid var(--rule);border-radius:3px;padding:6px 8px;min-width:0;font-family:var(--mono);font-size:12px}
 .loc{display:grid;gap:4px;padding-top:14px;border-top:1px solid var(--rule)}
 #lname{font-size:15px}
@@ -139,10 +140,10 @@ details[open] summary{margin-bottom:12px}
     <details>
       <summary>Census</summary>
       <div class="grp">
-        <div class="fld"><label for="pop">Population</label><input id="pop" type="text" inputmode="numeric"></div>
-        <div class="fld"><label for="br">Births per 1,000 a year</label><input id="br" type="text" inputmode="decimal"></div>
-        <div class="fld"><label for="dr">Deaths per 1,000 a year</label><input id="dr" type="text" inputmode="decimal"></div>
-        <p class="hint">Filled in from the city search and approximate national rates. Check them against local statistics. Changes apply when the census is reached.</p>
+        <div class="fld"><span>Population</span><span id="pop" class="val"></span></div>
+        <div class="fld"><span>Births per 1,000 a year</span><span id="br" class="val"></span></div>
+        <div class="fld"><span>Deaths per 1,000 a year</span><span id="dr" class="val"></span></div>
+        <p class="hint">Population from GeoNames. Birth and death rates are national estimates.</p>
       </div>
     </details>
     <p class="hint">Space or a clicker: next line · ← back · M: sound control · F: full screen · Esc: start again</p>
@@ -1125,18 +1126,16 @@ else (function(){
   function hhmm(d){ return (d.getHours()<10?"0":"")+d.getHours()+":"+(d.getMinutes()<10?"0":"")+d.getMinutes(); }
 
   // ---------- census inputs ----------
-  function readCensus(){
-    var pop=+String($("pop").value).replace(/[^\d.]/g,""), br=+$("br").value, dr=+$("dr").value;
-    return pop>0&&br>=0&&dr>=0 ? {pop:pop,br:br,dr:dr} : null;
-  }
+  var CEN=null;   // the figures the census uses, set when the city is chosen; shown in the panel, not editable
+  function readCensus(){ return CEN; }
   function updateToll(){ var c=readCensus(); Score.setDeathRate(c? c.pop*c.dr/1000/365.25/86400000 : 0); }
   function fillCensus(P){
-    var r=RATES[P.country_code]||RATES["*"];
-    $("pop").value=P.population? Math.round(P.population) : "";
-    $("br").value=r[0]; $("dr").value=r[1];
+    var r=RATES[P.country_code]||RATES["*"], pop=P.population? Math.round(P.population) : 0;
+    CEN = pop>0? {pop:pop, br:r[0], dr:r[1]} : null;
+    $("pop").textContent=pop>0? pop.toLocaleString("en-US") : "Not available";
+    $("br").textContent=r[0]; $("dr").textContent=r[1];
     updateToll();
   }
-  ["pop","dr"].forEach(function(id){ $(id).addEventListener("input",function(){ updateToll(); }); });
 
   // ---------- landing ----------
   var last=store.get("city"); if(last) $("city").value=last;
