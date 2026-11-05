@@ -172,12 +172,25 @@ var Writer = (function(){
     if(c===96||c===99) return "thunderstorms with hail"; return null; }
   function cap(s){return s? s.charAt(0).toUpperCase()+s.slice(1):s}
   function deg(n){n=Math.round(n); return n<0? "minus "+(-n):String(n)}
+  // Local conventions, set from the forecast city's country: Fahrenheit and a 12-hour clock where those are the norm.
+  var FAHRENHEIT={US:1,PR:1,GU:1,VI:1,AS:1,MP:1,BS:1,KY:1,BZ:1,PW:1,FM:1,MH:1,LR:1};
+  var CLOCK12={US:1,PR:1,GU:1,CA:1,AU:1,NZ:1,IN:1,PK:1,BD:1,PH:1,MY:1,EG:1,SA:1,JO:1,BS:1,KY:1,BZ:1,PW:1,FM:1,MH:1,LR:1};
+  var MONTHFIRST={US:1,PR:1,GU:1,VI:1,AS:1,MP:1};
+  var useF=false, use12=false, monthFirst=false;
+  function setUnits(P){ var cc=P&&P.country_code; useF=!!FAHRENHEIT[cc]; use12=!!CLOCK12[cc]; monthFirst=!!MONTHFIRST[cc]; }
+  function dateLine(wd,d,mo,y){ return monthFirst? wd+", "+mo+" "+d+", "+y : wd+" "+d+" "+mo+" "+y; }
+  // A temperature in Celsius, spoken in the local scale: "21 degrees Celsius", "70 degrees Fahrenheit".
+  function temp(c){ var v=Math.round(useF? c*9/5+32 : c); return deg(v)+(Math.abs(v)===1?" degree ":" degrees ")+(useF?"Fahrenheit":"Celsius"); }
+  function clockStr(h,m){ h=+h; m=+m;
+    if(!use12) return pad(h)+":"+pad(m);
+    var ap=h<12? "a.m." : "p.m.", h12=h%12===0? 12 : h%12;
+    return h12+(m? ":"+pad(m) : "")+" "+ap; }
   function pad(n){return (n<10?"0":"")+n}
   function num(v){return v===null||v===undefined||isNaN(+v)? null : +v}
   function wind(d){return WINDS[Math.round(((+d%360)+360)%360/45)%8]}
   function inst(s,off){return Date.parse(s.length===16? s+":00Z" : s+"Z") - off*1000}
   function wall(ms,off){return new Date(ms+off*1000)}
-  function hm(d){return pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())}
+  function hm(d){return clockStr(d.getUTCHours(), d.getUTCMinutes())}
   function dur(mins){ mins=Math.max(0,Math.round(mins)); var h=Math.floor(mins/60), m=mins%60, o=[];
     if(h) o.push(h+(h===1?" hour":" hours")); if(m||!h) o.push(m+(m===1?" minute":" minutes")); return o.join(" and "); }
   function rad(x){return x*Math.PI/180}
@@ -276,13 +289,14 @@ var Writer = (function(){
     if(tz){ try{
       var p={}; new Intl.DateTimeFormat("en-GB",{timeZone:tz,hourCycle:"h23",hour:"2-digit",minute:"2-digit",weekday:"long",day:"numeric",month:"long",year:"numeric"})
         .formatToParts(new Date(ms)).forEach(function(x){p[x.type]=x.value;});
-      if(p.hour) return {hm:p.hour+":"+p.minute, line:p.weekday+" "+p.day+" "+p.month+" "+p.year};
+      if(p.hour) return {hm:clockStr(p.hour,p.minute), line:dateLine(p.weekday,p.day,p.month,p.year)};
     }catch(e){} }
     var off = V.wx? V.wx.utc_offset_seconds||0 : -new Date().getTimezoneOffset()*60, w=wall(ms,off);
-    return {hm:hm(w), line:DAYS[w.getUTCDay()]+" "+w.getUTCDate()+" "+MONTHS[w.getUTCMonth()]+" "+w.getUTCFullYear()};
+    return {hm:hm(w), line:dateLine(DAYS[w.getUTCDay()],w.getUTCDate(),MONTHS[w.getUTCMonth()],w.getUTCFullYear())};
   }
-  function T(t){return {t:t}}
-  function F(f){return {f:f, t:""}}
+  function tidy(t){ return typeof t==="string"? t.replace(/(a\.m|p\.m)\.\./g,"$1.") : t; }
+  function T(t){return {t:tidy(t)}}
+  function F(f){return {f:function(ctx){ var r=f(ctx); return r&&typeof r.then==="function"? r.then(tidy) : tidy(r); }, t:""}}
 
   // ---------- sections ----------
   function heading(V){
@@ -297,8 +311,8 @@ var Writer = (function(){
     var c=wx.current, L=[T("Now.")];
     if(sky(c.weather_code)) L.push(T(cap(sky(c.weather_code))+"."));
     if(num(c.temperature_2m)!==null){
-      L.push(T("Temperature "+deg(c.temperature_2m)+" degrees."));
-      if(num(c.apparent_temperature)!==null && Math.abs(c.apparent_temperature-c.temperature_2m)>=2) L.push(T("Feels like "+deg(c.apparent_temperature)+"."));
+      L.push(T("Temperature "+temp(c.temperature_2m)+"."));
+      if(num(c.apparent_temperature)!==null && Math.abs(c.apparent_temperature-c.temperature_2m)>=2) L.push(T("Feels like "+temp(c.apparent_temperature)+"."));
     }
     if(num(c.wind_speed_10m)!==null){
       var sp=Math.round(c.wind_speed_10m);
@@ -336,7 +350,7 @@ var Writer = (function(){
     [0,2,5].forEach(function(k){ var j=i0+k; if(j>=h.time.length) return;
       var parts=[hm(wall(inst(h.time[j],off),off))+"."];
       if(h.weather_code && sky(h.weather_code[j])) parts.push(cap(sky(h.weather_code[j]))+".");
-      if(h.temperature_2m && num(h.temperature_2m[j])!==null) parts.push(deg(h.temperature_2m[j])+" degrees.");
+      if(h.temperature_2m && num(h.temperature_2m[j])!==null) parts.push(cap(temp(h.temperature_2m[j]))+".");
       if(h.precipitation_probability && num(h.precipitation_probability[j])!==null) parts.push("Rain, "+Math.round(h.precipitation_probability[j])+" percent.");
       L.push(T(parts.join(" "))); });
     return L;
@@ -347,7 +361,7 @@ var Writer = (function(){
     (V.past||[]).forEach(function(p){
       if(num(p.max)===null) return;
       var when=p.lastYear? "Last year" : (first? "On this date in "+p.year : "In "+p.year); first=false;
-      L.push(T(when+", the high was "+deg(p.max)+" degrees"+(num(p.min)!==null? " and the low was "+deg(p.min)+"." : ".")));
+      L.push(T(when+", the high was "+temp(p.max)+(num(p.min)!==null? " and the low was "+temp(p.min)+"." : ".")));
       if(num(p.rain)!==null) L.push(T(p.rain>=0.5? "It rained "+Math.round(p.rain)+(Math.round(p.rain)===1?" millimetre.":" millimetres.") : "It did not rain."));
     });
     return L;
@@ -744,7 +758,7 @@ var Writer = (function(){
       function(){ return [F(function(ctx){ return "In "+P.name+", it is now "+clock(V,ctx.now).hm+"."; })]; },
       function(){ return [F(function(ctx){ var a=sunAlt(P.latitude,P.longitude,ctx.now), r=Math.round(Math.abs(a));
         return r===0? "Over "+P.name+", the Sun is on the horizon." : "Over "+P.name+", the Sun is "+r+(r===1?" degree ":" degrees ")+(a>0?"above":"below")+" the horizon."; })]; },
-      function(){ return [F(function(ctx){ var t=hourVal("temperature_2m",ctx.now); return t===null? null : "In "+P.name+", the temperature is "+deg(t)+(Math.abs(Math.round(t))===1?" degree.":" degrees."); })]; },
+      function(){ return [F(function(ctx){ var t=hourVal("temperature_2m",ctx.now); return t===null? null : "In "+P.name+", the temperature is "+temp(t)+"."; })]; },
       function(){ return [F(function(ctx){ var c=V.wx&&V.wx.current; if(!c||num(c.wind_speed_10m)===null) return null; var sp=Math.round(c.wind_speed_10m);
         return sp<2? "There is no wind in "+P.name+"." : "The wind in "+P.name+" is "+wind(c.wind_direction_10m)+", "+sp+" kilometres per hour."; })]; },
       function(){ return [F(function(ctx){ var d=V.wx&&V.wx.daily, off=V.wx? V.wx.utc_offset_seconds||0 : 0; if(!d||!d.sunrise) return null;
@@ -767,7 +781,7 @@ var Writer = (function(){
       return a; };
 
     function loc(c){ return c.anti? "on the opposite side of the Earth from "+P.name : (c.at||"in "+c.name); }
-    function tempLine(c){ var t=Math.round(c.temp); return deg(t)+(Math.abs(t)===1?" degree.":" degrees."); }
+    function tempLine(c){ return temp(c.temp)+"."; }
     function skyClause(code){ var k=sky(code);
       return {"clear sky":"the sky is clear","mainly clear":"the sky is mostly clear","partly cloudy":"it is partly cloudy","overcast":"it is overcast",
         "fog":"there is fog","thunderstorms":"there are thunderstorms","thunderstorms with hail":"there are thunderstorms, with hail"}[k] || (k? "there is "+k : "the sky is clear"); }
@@ -871,7 +885,7 @@ var Writer = (function(){
     return blocks;
   }
 
-  return {heading:heading, now:nowSec, light:light, hours:hours, past:past, ground:ground, air:air, cemetery:cemetery, census:census, belief:belief, world:world,
+  return {setUnits:setUnits, heading:heading, now:nowSec, light:light, hours:hours, past:past, ground:ground, air:air, cemetery:cemetery, census:census, belief:belief, world:world,
     station:station, spaceWeather:spaceWeather, asteroids:asteroids, nearSpace:nearSpace, planets:planets, voyager:voyager, galaxy:galaxy, far:far, still:still, endless:endless};
 })();
 /* ===================== END WRITER ===================== */
@@ -1121,6 +1135,7 @@ else (function(){
   // and the slower sources (past years, the cemetery) arrive in the background while earlier lines are read.
   var refresh=[], E=null;
   function start(P){
+    Writer.setUnits(P);
     refresh.forEach(clearInterval); refresh=[];
     V={place:P};
     fillCensus(P);
