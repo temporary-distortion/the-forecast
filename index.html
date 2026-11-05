@@ -1171,6 +1171,7 @@ else (function(){
   var refresh=[], E=null;
   function start(P){
     Writer.setUnits(P);
+    Score.reset();     // every new city starts from the default sound
     refresh.forEach(clearInterval); refresh=[];
     V={place:P};
     fillCensus(P);
@@ -1344,7 +1345,7 @@ else (function(){
     var ac=null, N={}, timers=[], running=false, muted=false, deathRate=0;
     var NOTES=["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"];
     var DEF={level:.75, drone:1, pitch:5, bright:.35, drift:.7, choir:.07, harmonics:.56, bells:.1, toll:.8, space:1};
-    var P=Object.assign({}, DEF, store.get("sound2")||{});
+    var P=Object.assign({}, DEF);   // always starts from the programmed defaults; slider changes last only for the current forecast
     var SL=[
       ["level","Level",0,1,.01],["drone","Drone",0,1,.01],["pitch","Pitch",-12,12,1],["bright","Brightness",0,1,.01],
       ["drift","Drift",0,1,.01],["choir","Choir",0,1,.01],["harmonics","Harmonics",0,1,.01],["bells","Bells",0,1,.01],
@@ -1362,7 +1363,7 @@ else (function(){
       box.appendChild(row);
       var inp=row.querySelector("input"), o=row.querySelector("output");
       inp.value=P[s[0]]; o.textContent=fmt(s[0],P[s[0]]);
-      inp.addEventListener("input",function(){ P[s[0]]=+inp.value; o.textContent=fmt(s[0],P[s[0]]); store.set("sound2",P); apply(s[0]); });
+      inp.addEventListener("input",function(){ P[s[0]]=+inp.value; o.textContent=fmt(s[0],P[s[0]]); apply(s[0]); });
     });
     function setSlider(k,v){ P[k]=v; var i=$("s_"+k); if(i){ i.value=v; $("o_"+k).textContent=fmt(k,v); } apply(k); }
 
@@ -1484,7 +1485,8 @@ else (function(){
       setDeathRate:function(perMs){ deathRate=perMs; },
       // the toll: one soft, low stroke when a line about death appears on screen
       toll:function(){ if(!ac||!running||muted||!(P.toll>0.01)) return; bell(root()*2, 0.06+P.toll*0.28, 14); },
-      get:function(k){ return P[k]; }
+      get:function(k){ return P[k]; },
+      reset:function(){ Object.keys(DEF).forEach(function(k){ setSlider(k, DEF[k]); }); }
     };
   })();
 
