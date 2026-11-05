@@ -1130,7 +1130,9 @@ else (function(){
   function readCensus(){ return CEN; }
   // Lines about death ring the toll as they appear.
   var DEATH=/\b(die|dies|died|dying|dead|death|deaths|cemetery|grave|graves|buried|mourners|ancestors|funeral)\b/i;
-  function tollFor(t){ if(t && DEATH.test(t)) Score.toll(); }
+  // The bell waits three seconds, so the line is seen before it is heard.
+  var tollTimers=[];
+  function tollFor(t){ if(t && DEATH.test(t)) tollTimers.push(setTimeout(function(){ if($("stage").classList.contains("on")) Score.toll(); }, 3000)); }
   function updateToll(){ var c=readCensus(); Score.setDeathRate(c? c.pop*c.dr/1000/365.25/86400000 : 0); }
   function fillCensus(P){
     var r=RATES[P.country_code]||RATES["*"], pop=P.population? Math.round(P.population) : 0;
@@ -1221,7 +1223,7 @@ else (function(){
   }
 
   function exitStage(){
-    clearInterval(typing); typing=null; Score.stop(); refresh.forEach(clearInterval); refresh=[];
+    clearInterval(typing); typing=null; Score.stop(); refresh.forEach(clearInterval); refresh=[]; tollTimers.forEach(clearTimeout); tollTimers=[];
     $("stage").classList.remove("on"); $("landing").style.display="";
     if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){});
     $("city").focus();
