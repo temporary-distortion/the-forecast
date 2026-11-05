@@ -176,8 +176,31 @@ var Writer = (function(){
   var FAHRENHEIT={US:1,PR:1,GU:1,VI:1,AS:1,MP:1,BS:1,KY:1,BZ:1,PW:1,FM:1,MH:1,LR:1};
   var CLOCK12={US:1,PR:1,GU:1,CA:1,AU:1,NZ:1,IN:1,PK:1,BD:1,PH:1,MY:1,EG:1,SA:1,JO:1,BS:1,KY:1,BZ:1,PW:1,FM:1,MH:1,LR:1};
   var MONTHFIRST={US:1,PR:1,GU:1,VI:1,AS:1,MP:1};
+  var IMPERIAL={US:1,PR:1,GU:1,VI:1,AS:1,MP:1,LR:1};   // miles, feet, inches, tons
+  var MILES={GB:1};                                     // miles and miles per hour only (heights and rain stay metric)
+  var useMi=false, useImp=false;
   var useF=false, use12=false, monthFirst=false;
-  function setUnits(P){ var cc=P&&P.country_code; useF=!!FAHRENHEIT[cc]; use12=!!CLOCK12[cc]; monthFirst=!!MONTHFIRST[cc]; }
+  function setUnits(P){ var cc=P&&P.country_code; useF=!!FAHRENHEIT[cc]; use12=!!CLOCK12[cc]; monthFirst=!!MONTHFIRST[cc]; useImp=!!IMPERIAL[cc]; useMi=useImp||!!MILES[cc]; }
+  function plural(n,one,many){ return (Math.abs(+n)===1? one : many); }
+  // speeds
+  function kmh(v){ var x=Math.round(useMi? v*0.621371 : v); return big(x)+(useMi?" miles per hour":" kilometres per hour"); }
+  function bigSpeed(v){ var x=useMi? v*0.621371 : v; return big(Math.round(x/100)*100)+(useMi?" miles per hour":" kilometres per hour"); }
+  function kms(v){ var x=Math.round(useMi? v*0.621371 : v); return big(x)+(useMi?" miles a second":" kilometres a second"); }
+  // heights and sizes, from metres
+  function height(m){ if(!useImp) return big(Math.round(m))+plural(Math.round(m)," metre"," metres"); var f=Math.round(m*3.28084/(Math.abs(m)>300?10:1))*(Math.abs(m)>300?10:1); return big(f)+plural(f," foot"," feet"); }
+  // rainfall, from millimetres
+  function rain(mm){ if(!useImp) return Math.round(mm)+plural(Math.round(mm)," millimetre"," millimetres");
+    var i=mm/25.4; if(i<0.1) return "less than a tenth of an inch"; var r=Math.round(i*10)/10; return r+(r===1?" inch":" inches"); }
+  // river flow, from cubic metres a second
+  function riverFlow(v){ return useImp? flow(v*35.3147)+" cubic feet of water a second" : flow(v)+" cubic metres of water a second"; }
+  // fixed sentences that carry metric figures
+  var IMP_TEXT={
+    "About four centimetres a year.":"About an inch and a half a year.",
+    "The deepest hole ever drilled is a little more than twelve kilometres deep.":"The deepest hole ever drilled is a little more than seven and a half miles deep.",
+    "Every second, the Sun turns about four million tonnes of itself into light.":"Every second, the Sun turns about four and a half million tons of itself into light.",
+    "The nearest star after the Sun is forty trillion kilometres away.":"The nearest star after the Sun is twenty-five trillion miles away.",
+    "Twenty thousand kilometres around the Earth. Twelve thousand seven hundred through it.":"Twelve thousand four hundred miles around the Earth. Seven thousand nine hundred through it."};
+  function local(t){ return (useMi && IMP_TEXT[t]) || t; }
   function dateLine(wd,d,mo,y){ return monthFirst? wd+", "+mo+" "+d+", "+y : wd+" "+d+" "+mo+" "+y; }
   // A temperature in Celsius, spoken in the local scale: "21 degrees Celsius", "70 degrees Fahrenheit".
   function temp(c){ var v=Math.round(useF? c*9/5+32 : c); return deg(v)+(Math.abs(v)===1?" degree ":" degrees ")+(useF?"Fahrenheit":"Celsius"); }
@@ -213,11 +236,16 @@ var Writer = (function(){
   function big(n){ n=Math.round(n); return Math.abs(n)>=1000? words(n) : String(n); }
 
   function dist(k){
-    if(k>=1e12) return wordsDec(k/1e12)+" trillion kilometres";
-    if(k>=1e9) return wordsDec(k/1e9)+" billion kilometres";
-    if(k>=1e6) return words(Math.round(k/1e6))+" million kilometres";
-    if(k>=1e4) return words(Math.round(k/1000)*1000)+" kilometres";
-    if(k<1) return Math.round(k*100)*10+" metres"; if(k<10) return (Math.round(k*10)/10)+" kilometres"; return big(k)+" kilometres"; }
+    var u="kilometres", one="kilometre";
+    if(useMi){ k=k*0.621371; u="miles"; one="mile";
+      if(k<0.2){ var ft=Math.round(k*5280/10)*10; return big(ft)+(ft===1?" foot":" feet"); } }
+    else if(k<1) return Math.round(k*100)*10+" metres";
+    if(k>=1e12) return wordsDec(k/1e12)+" trillion "+u;
+    if(k>=1e9) return wordsDec(k/1e9)+" billion "+u;
+    if(k>=1e6) return words(Math.round(k/1e6))+" million "+u;
+    if(k>=1e4) return words(Math.round(k/1000)*1000)+" "+u;
+    if(k<10){ var r=Math.round(k*10)/10; return r+(r===1?" "+one:" "+u); }
+    return big(k)+" "+u; }
   function flow(v){ return v<10? String(Math.round(v*10)/10) : big(v); }
   function ago(ms){ var h=ms/3600000; if(h<1) return Math.max(1,Math.round(ms/60000))+" minutes ago"; if(h<48) return Math.round(h)+(Math.round(h)===1?" hour ago":" hours ago"); return Math.round(h/24)+" days ago"; }
   var STATES={AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",PR:"Puerto Rico"};
@@ -294,7 +322,7 @@ var Writer = (function(){
     var off = V.wx? V.wx.utc_offset_seconds||0 : -new Date().getTimezoneOffset()*60, w=wall(ms,off);
     return {hm:hm(w), line:dateLine(DAYS[w.getUTCDay()],w.getUTCDate(),MONTHS[w.getUTCMonth()],w.getUTCFullYear())};
   }
-  function tidy(t){ return typeof t==="string"? t.replace(/(a\.m|p\.m)\.\./g,"$1.") : t; }
+  function tidy(t){ return typeof t==="string"? local(t.replace(/(a\.m|p\.m)\.\./g,"$1.")) : t; }
   function T(t){return {t:tidy(t)}}
   function F(f){return {f:function(ctx){ var r=f(ctx); return r&&typeof r.then==="function"? r.then(tidy) : tidy(r); }, t:""}}
 
@@ -317,8 +345,8 @@ var Writer = (function(){
     if(num(c.wind_speed_10m)!==null){
       var sp=Math.round(c.wind_speed_10m);
       if(sp<2) L.push(T("Wind calm."));
-      else { L.push(T("Wind "+wind(c.wind_direction_10m)+", "+sp+" kilometres per hour."));
-        if(num(c.wind_gusts_10m)!==null && c.wind_gusts_10m-c.wind_speed_10m>=8) L.push(T("Gusting "+Math.round(c.wind_gusts_10m)+".")); }
+      else { L.push(T("Wind "+wind(c.wind_direction_10m)+", "+kmh(sp)+"."));
+        if(num(c.wind_gusts_10m)!==null && c.wind_gusts_10m-c.wind_speed_10m>=8) L.push(T("Gusting "+Math.round(useMi? c.wind_gusts_10m*0.621371 : c.wind_gusts_10m)+".")); }
     }
     if(num(c.relative_humidity_2m)!==null) L.push(T("Humidity "+Math.round(c.relative_humidity_2m)+" percent."));
     if(num(c.cloud_cover)!==null) L.push(T("Cloud cover "+Math.round(c.cloud_cover)+" percent."));
@@ -362,7 +390,7 @@ var Writer = (function(){
       if(num(p.max)===null) return;
       var when=p.lastYear? "Last year" : (first? "On this date in "+p.year : "In "+p.year); first=false;
       L.push(T(when+", the high was "+temp(p.max)+(num(p.min)!==null? " and the low was "+temp(p.min)+"." : ".")));
-      if(num(p.rain)!==null) L.push(T(p.rain>=0.5? "It rained "+Math.round(p.rain)+(Math.round(p.rain)===1?" millimetre.":" millimetres.") : "It did not rain."));
+      if(num(p.rain)!==null) L.push(T(p.rain>=0.5? "It rained "+rain(p.rain)+"." : "It did not rain."));
     });
     return L;
   }
@@ -370,21 +398,21 @@ var Writer = (function(){
   function ground(V){
     var L=[], P=V.place, wx=V.wx;
     if(wx && num(wx.elevation)!==null){ var el=Math.round(wx.elevation);
-      L.push(T(el>=0? P.name+" is "+el+" metres above sea level." : P.name+" is "+(-el)+" metres below sea level.")); }
+      L.push(T(el>=0? P.name+" is "+height(el)+" above sea level." : P.name+" is "+height(-el)+" below sea level.")); }
     var rv=V.river;
     if(rv && num(rv.now)!==null && rv.now>=0.5){
-      L.push(T("The nearest river is carrying "+flow(rv.now)+" cubic metres of water a second."));
-      if(num(rv.max)!==null && rv.max>rv.now*1.15) L.push(T("This week it will rise to "+flow(rv.max)+"."));
-      else if(num(rv.min)!==null && rv.min<rv.now*0.85) L.push(T("This week it will fall to "+flow(rv.min)+"."));
+      L.push(T("The nearest river is carrying "+riverFlow(rv.now)+"."));
+      if(num(rv.max)!==null && rv.max>rv.now*1.15) L.push(T("This week it will rise to "+flow(useImp? rv.max*35.3147 : rv.max)+"."));
+      else if(num(rv.min)!==null && rv.min<rv.now*0.85) L.push(T("This week it will fall to "+flow(useImp? rv.min*35.3147 : rv.min)+"."));
       else L.push(T("It will stay about the same this week."));
     }
     var qs=V.quakes;
     if(qs && qs.length){
-      var near=null, big=null, now=Date.now();
-      qs.forEach(function(q){ q.d=km(P.latitude,P.longitude,q.lat,q.lon); if(!near||q.d<near.d) near=q; if(!big||q.mag>big.mag) big=q; });
-      L.push(T("This week there have been "+big(qs.length)+" earthquakes on Earth strong enough to feel, had they happened in "+P.name+"."));
+      var near=null, top=null, now=Date.now();
+      qs.forEach(function(q){ q.d=km(P.latitude,P.longitude,q.lat,q.lon); if(!near||q.d<near.d) near=q; if(!top||q.mag>top.mag) top=q; });
+      L.push(T(qs.length===1? "This week there has been one earthquake on Earth strong enough to feel, had it happened in "+P.name+"." : "This week there have been "+big(qs.length)+" earthquakes on Earth strong enough to feel, had they happened in "+P.name+"."));
       L.push(T("The nearest was magnitude "+near.mag.toFixed(1)+", "+dist(near.d)+" "+bearing(P.latitude,P.longitude,near.lat,near.lon)+" of "+P.name+", "+ago(now-near.time)+"."));
-      if(big!==near) L.push(T("The strongest was magnitude "+big.mag.toFixed(1)+", "+dist(big.d)+" "+bearing(P.latitude,P.longitude,big.lat,big.lon)+" of "+P.name+"."));
+      if(top!==near) L.push(T("The strongest was magnitude "+top.mag.toFixed(1)+", "+dist(top.d)+" "+bearing(P.latitude,P.longitude,top.lat,top.lon)+" of "+P.name+"."));
     }
     return L;
   }
@@ -420,7 +448,7 @@ var Writer = (function(){
   function station(V){
     var ok=false, P=V.place, crew=V.crew;
     var L=[F(function(ctx){ return ctx.iss().then(function(p){ if(!p) return null; ok=true;
-              return "The International Space Station is "+dist(km(P.latitude,P.longitude,p.lat,p.lon))+" "+bearing(P.latitude,P.longitude,p.lat,p.lon)+" of "+P.name+", "+Math.round(p.alt)+" kilometres up."; }); }),
+              return "The International Space Station is "+dist(km(P.latitude,P.longitude,p.lat,p.lon))+" "+bearing(P.latitude,P.longitude,p.lat,p.lon)+" of "+P.name+", "+(useMi? Math.round(p.alt*0.621371)+" miles" : Math.round(p.alt)+" kilometres")+" up."; }); }),
            F(function(ctx){ return ok? "Since the last line, it has travelled "+dist(27600*(ctx.now-ctx.lastShown)/3600000)+"." : null; })];
     var C=[];
     if(crew && crew.iss && crew.iss.length){
@@ -459,7 +487,7 @@ var Writer = (function(){
 
   function spaceWeather(V){
     var sw=V.space||{}, L=[];
-    if(num(sw.wind)!==null) L.push(T("Solar wind is reaching the Earth at "+Math.round(sw.wind)+" kilometres a second."));
+    if(num(sw.wind)!==null) L.push(T("Solar wind is reaching the Earth at "+kms(sw.wind)+"."));
     if(num(sw.kp)!==null){ var k=Math.round(sw.kp); L.push(T("Geomagnetic activity, "+k+" on a scale of nine."+(k>=5?" There is a geomagnetic storm.":""))); }
     if(num(sw.ssn)!==null) L.push(T("Last month's sunspot number was "+Math.round(sw.ssn)+"."));
     return L;
@@ -469,8 +497,8 @@ var Writer = (function(){
     var a=V.neo; if(!a||!a.count) return [];
     var L=[T("Today, "+a.count+(a.count===1?" asteroid is":" asteroids are")+" passing the Earth.")];
     if(a.closest){ var c=a.closest;
-      L.push(T("The closest is about "+Math.round(c.size)+" metres across."));
-      L.push(T("It will pass at "+dist(c.km)+", travelling at "+big(Math.round(c.kmh/100)*100)+" kilometres per hour."));
+      L.push(T("The closest is about "+height(c.size)+" across."));
+      L.push(T("It will pass at "+dist(c.km)+", travelling at "+bigSpeed(c.kmh)+"."));
       var m=c.km/384400; L.push(T(m<1? "That is closer than the Moon." : "That is "+(m<10? Math.round(m*10)/10 : Math.round(m))+" times the distance to the Moon.")); }
     return L;
   }
@@ -760,7 +788,7 @@ var Writer = (function(){
         return r===0? "Over "+P.name+", the Sun is on the horizon." : "Over "+P.name+", the Sun is "+r+(r===1?" degree ":" degrees ")+(a>0?"above":"below")+" the horizon."; })]; },
       function(){ return [F(function(ctx){ var t=hourVal("temperature_2m",ctx.now); return t===null? null : "In "+P.name+", the temperature is "+temp(t)+"."; })]; },
       function(){ return [F(function(ctx){ var c=V.wx&&V.wx.current; if(!c||num(c.wind_speed_10m)===null) return null; var sp=Math.round(c.wind_speed_10m);
-        return sp<2? "There is no wind in "+P.name+"." : "The wind in "+P.name+" is "+wind(c.wind_direction_10m)+", "+sp+" kilometres per hour."; })]; },
+        return sp<2? "There is no wind in "+P.name+"." : "The wind in "+P.name+" is "+wind(c.wind_direction_10m)+", "+kmh(sp)+"."; })]; },
       function(){ return [F(function(ctx){ var d=V.wx&&V.wx.daily, off=V.wx? V.wx.utc_offset_seconds||0 : 0; if(!d||!d.sunrise) return null;
         var ev=[]; for(var i=0;i<d.sunrise.length;i++){ if(d.sunrise[i]) ev.push(["Sunrise",inst(d.sunrise[i],off)]); if(d.sunset&&d.sunset[i]) ev.push(["Sunset",inst(d.sunset[i],off)]); }
         ev=ev.filter(function(e){ return e[1]>ctx.now; }).sort(function(x,y){ return x[1]-y[1]; }); if(!ev.length) return null;
@@ -777,7 +805,7 @@ var Writer = (function(){
     ];
       if(V.cemetery){ var cm=V.cemetery, cd=km(P.latitude,P.longitude,cm.lat,cm.lon), cb=bearing(P.latitude,P.longitude,cm.lat,cm.lon);
         a.push(function(){ return [T((cm.name? cm.name : "The nearest cemetery")+" is still "+dist(cd)+" "+cb+" of the centre of "+P.name+".")]; }); }
-      if(V.river && num(V.river.now)!==null && V.river.now>=0.5) a.push(function(){ return [T("The nearest river is still carrying "+flow(V.river.now)+" cubic metres of water a second.")]; });
+      if(V.river && num(V.river.now)!==null && V.river.now>=0.5) a.push(function(){ return [T("The nearest river is still carrying "+riverFlow(V.river.now)+".")]; });
       return a; };
 
     function loc(c){ return c.anti? "on the opposite side of the Earth from "+P.name : (c.at||"in "+c.name); }
@@ -818,7 +846,7 @@ var Writer = (function(){
       function(){ var qs=V.quakes||[]; return [F(function(ctx){ var last=null; qs.forEach(function(q){ if(!last||q.time>last.time) last=q; }); if(!last) return null;
           return "The most recent earthquake was magnitude "+last.mag.toFixed(1)+", "+ago(ctx.now-last.time)+", "+dist(km(P.latitude,P.longitude,last.lat,last.lon))+" "+bearing(P.latitude,P.longitude,last.lat,last.lon)+" of "+P.name+"."; })]; }
     ];
-      if(V.space && num(V.space.wind)!==null) a.push(function(){ return [T("Solar wind is reaching the Earth at "+Math.round(V.space.wind)+" kilometres a second."), T("It passes around us.")]; });
+      if(V.space && num(V.space.wind)!==null) a.push(function(){ return [T("Solar wind is reaching the Earth at "+kms(V.space.wind)+"."), T("It passes around us.")]; });
       if(V.neo && V.neo.count) a.push(function(){ return [T("Today, "+V.neo.count+(V.neo.count===1?" asteroid is":" asteroids are")+" passing the Earth."), T("None of them is expected to hit it.")]; });
       return a; };
 
