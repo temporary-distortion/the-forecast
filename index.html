@@ -1232,7 +1232,7 @@ else (function(){
     clearInterval(typing); typing=null; Score.stop(); refresh.forEach(clearInterval); refresh=[]; tollTimers.forEach(clearTimeout); tollTimers=[]; lastToll=-Infinity;
     $("stage").classList.remove("on"); $("landing").style.display="";
     if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){});
-    $("city").focus();
+    $("city").value=""; $("lmsg").textContent=""; $("city").focus();
   }
 
   // ---------- reading ----------
