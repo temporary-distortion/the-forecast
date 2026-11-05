@@ -1,0 +1,1448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The Forecast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Martian+Mono:wght@300;400;500&display=swap">
+<style>
+/* Layout: a single dark reading surface for the stage. Landing is one field and one button. On stage, the current line sits low-left, earlier lines drift up and dim; the score panel floats at the right edge. */
+:root{
+  color-scheme: dark;
+  --ground: #0c0e10;      /* stage black with a little blue in it */
+  --paper: #ece4d4;       /* the line being read: warm, like paper under tungsten */
+  --ash: #6d6a64;         /* lines already read, labels */
+  --ember: #d9963a;       /* amber accent */
+  --rule: #24282c;
+  --panel: #121518;
+  --bad: #e07b6a;
+  --read: "Atkinson Hyperlegible", "Verdana", "Segoe UI", sans-serif;
+  --mono: "Martian Mono", "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--paper);font-family:var(--read);overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ash)}
+
+/* ---------- landing ---------- */
+#landing{position:fixed;inset:0;display:grid;place-items:center;
+  padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.land{width:min(640px,100%);display:grid;gap:28px}
+.land h1{margin:0;font-weight:700;font-size:clamp(44px,9vw,104px);line-height:.95;letter-spacing:-.02em}
+.land form{display:flex;flex-wrap:wrap;gap:10px}
+.land input{flex:1 1 260px;min-width:0;background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:14px 16px;font-size:20px}
+.land input::placeholder{color:var(--ash)}
+.land button{background:var(--ember);color:#17110a;border:1px solid var(--ember);border-radius:3px;padding:14px 26px;font-size:18px;font-weight:700;cursor:pointer}
+.land button:disabled{opacity:.5;cursor:default}
+#lmsg{font-family:var(--mono);font-size:12px;color:var(--ash);min-height:1.4em;margin:0;line-height:1.6}
+#lmsg.bad{color:var(--bad)}
+
+/* ---------- stage ---------- */
+#stage{position:fixed;inset:0;display:none}
+#stage.on{display:block}
+#read{position:absolute;inset:0;cursor:none}
+#scroll{position:absolute;left:0;right:0;bottom:36vh;display:flex;flex-direction:column;gap:.55em;
+  padding-left:max(6vw,env(safe-area-inset-left,0px));padding-right:max(6vw,env(safe-area-inset-right,0px));
+  font-size:var(--size,clamp(28px,4.2vw,68px));line-height:1.22}
+#stage.panel-open #scroll{padding-right:calc(340px + 3vw)}
+.ln{color:var(--ash);opacity:.55;transition:color .6s,opacity .6s;max-width:24em}
+.ln.gap{margin-top:.9em}
+.ln.old{opacity:.25}
+.ln.gone{opacity:.08}
+.ln.now{color:var(--paper);opacity:1}
+.caret{display:inline-block;width:.08em;height:.95em;background:var(--ember);vertical-align:-.1em;margin-left:.06em;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+#ready{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+
+#hud{position:absolute;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;justify-content:space-between;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ash);
+  border-top:1px solid var(--rule);background:var(--ground);transition:opacity .6s}
+#hud.hide{opacity:0}
+#hud .flag{color:var(--ember)}
+#hud button{background:transparent;border:1px solid var(--rule);border-radius:3px;padding:5px 10px;font:inherit;letter-spacing:inherit;text-transform:inherit;color:var(--paper);cursor:pointer}
+
+/* score panel */
+#panel{position:absolute;top:max(14px,env(safe-area-inset-top,0px));right:max(14px,env(safe-area-inset-right,0px));bottom:58px;width:min(330px,calc(100% - 28px));
+  overflow-y:auto;background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+  padding:16px 16px 18px;display:grid;gap:18px;align-content:start;cursor:default}
+#panel[hidden]{display:none}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.ph strong{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:500}
+.ph button{background:transparent;border:1px solid var(--rule);border-radius:3px;padding:4px 9px;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em}
+.ph button[aria-pressed=true]{border-color:var(--ember);color:var(--ember)}
+.grp{display:grid;gap:10px}
+.sl{display:grid;grid-template-columns:76px minmax(0,1fr) 46px;gap:10px;align-items:center}
+.sl label{font-size:13px;color:var(--paper)}
+.sl input{width:100%;accent-color:var(--ember);min-width:0}
+.sl output{font-family:var(--mono);font-size:11px;color:var(--ash);text-align:right;font-variant-numeric:tabular-nums}
+.hint{font-size:12px;line-height:1.45;color:var(--ash);margin:0}
+.fld{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px 10px;align-items:center}
+.fld label{font-size:13px}
+.fld input,.fld select{background:var(--ground);border:1px solid var(--rule);border-radius:3px;padding:6px 8px;min-width:0;font-family:var(--mono);font-size:12px}
+.loc{display:grid;gap:4px;padding-top:14px;border-top:1px solid var(--rule)}
+#lname{font-size:15px}
+.coords{font-family:var(--mono);font-size:12px;color:var(--ash);font-variant-numeric:tabular-nums}
+.mini{background:transparent;border:1px solid var(--rule);border-radius:3px;padding:5px 9px;cursor:pointer;font-family:var(--mono);font-size:11px;justify-self:start}
+details summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ash)}
+details[open] summary{margin-bottom:12px}
+@media (max-width:700px){#stage.panel-open #scroll{padding-right:max(6vw,env(safe-area-inset-right,0px))} #panel{bottom:auto;max-height:55vh}}
+@media (prefers-reduced-motion:reduce){.ln{transition:none}.caret{animation:none}}
+</style>
+</head>
+<body>
+
+<section id="landing" aria-label="Start">
+  <div class="land">
+    <h1>The Forecast</h1>
+    <form id="lform" autocomplete="off">
+      <input id="city" type="text" placeholder="City" aria-label="City" spellcheck="false">
+      <button id="begin" type="submit">Begin</button>
+    </form>
+    <p id="lmsg" role="status"></p>
+  </div>
+</section>
+
+<section id="stage">
+  <div id="read" aria-live="polite">
+    <div id="scroll"></div>
+    <div id="ready" class="label">Press space to begin</div>
+  </div>
+
+  <aside id="panel" aria-label="Sound control and settings">
+    <div class="ph"><strong>Sound Control</strong><span style="display:flex;gap:6px"><button id="mute" aria-pressed="false">Mute</button><button id="close">Hide</button></span></div>
+    <div class="grp" id="sliders"></div>
+
+    <details>
+      <summary>Reading</summary>
+      <div class="grp">
+        <div class="fld"><label for="size">Text size</label>
+          <select id="size">
+            <option value="clamp(22px,3.4vw,54px)">Smaller</option>
+            <option value="clamp(28px,4.2vw,68px)" selected>Normal</option>
+            <option value="clamp(34px,5.2vw,86px)">Larger</option>
+          </select></div>
+      </div>
+    </details>
+
+    <div class="loc" aria-label="Location">
+      <span class="label">Location</span>
+      <span id="lname"></span>
+      <span id="lcoords" class="coords"></span>
+    </div>
+
+    <details>
+      <summary>Census</summary>
+      <div class="grp">
+        <div class="fld"><label for="pop">Population</label><input id="pop" type="text" inputmode="numeric"></div>
+        <div class="fld"><label for="br">Births per 1,000 a year</label><input id="br" type="text" inputmode="decimal"></div>
+        <div class="fld"><label for="dr">Deaths per 1,000 a year</label><input id="dr" type="text" inputmode="decimal"></div>
+        <p class="hint">Filled in from the city search and approximate national rates. Check them against local statistics. Changes apply when the census is reached.</p>
+      </div>
+    </details>
+    <p class="hint">Space or a clicker: next line · ← back · M: sound control · F: full screen · Esc: start again</p>
+  </aside>
+
+  <div id="hud"><span id="hcity"></span><span id="hflag"></span><span id="hpos"></span><button id="hscore">Sound Control</button></div>
+</section>
+
+<script>
+/* ============================================================
+   THE WRITER — pure functions that turn data into lines.
+   Each section returns an array of {t} lines (or several arrays,
+   one per block), or {f} lines written at the moment they appear.
+   ============================================================ */
+var Writer = (function(){
+  var DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  var WINDS=["northerly","north-easterly","easterly","south-easterly","southerly","south-westerly","westerly","north-westerly"];
+  var COMPASS=["north","north-east","east","south-east","south","south-west","west","north-west"];
+
+  function sky(c){ c=+c;
+    if(c===0) return "clear sky"; if(c===1) return "mainly clear"; if(c===2) return "partly cloudy"; if(c===3) return "overcast";
+    if(c===45||c===48) return "fog"; if(c>=51&&c<=55) return "drizzle"; if(c===56||c===57) return "freezing drizzle";
+    if(c===61) return "light rain"; if(c===63) return "rain"; if(c===65) return "heavy rain"; if(c===66||c===67) return "freezing rain";
+    if(c>=71&&c<=75) return "snow"; if(c===77) return "snow grains"; if(c===80) return "light showers"; if(c===81) return "showers";
+    if(c===82) return "heavy showers"; if(c===85||c===86) return "snow showers"; if(c===95) return "thunderstorms";
+    if(c===96||c===99) return "thunderstorms with hail"; return null; }
+  function cap(s){return s? s.charAt(0).toUpperCase()+s.slice(1):s}
+  function deg(n){n=Math.round(n); return n<0? "minus "+(-n):String(n)}
+  function pad(n){return (n<10?"0":"")+n}
+  function num(v){return v===null||v===undefined||isNaN(+v)? null : +v}
+  function wind(d){return WINDS[Math.round(((+d%360)+360)%360/45)%8]}
+  function inst(s,off){return Date.parse(s.length===16? s+":00Z" : s+"Z") - off*1000}
+  function wall(ms,off){return new Date(ms+off*1000)}
+  function hm(d){return pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())}
+  function dur(mins){ mins=Math.max(0,Math.round(mins)); var h=Math.floor(mins/60), m=mins%60, o=[];
+    if(h) o.push(h+(h===1?" hour":" hours")); if(m||!h) o.push(m+(m===1?" minute":" minutes")); return o.join(" and "); }
+  function rad(x){return x*Math.PI/180}
+  function km(a1,o1,a2,o2){ var dA=rad(a2-a1), dO=rad(o2-o1);
+    var q=Math.sin(dA/2)*Math.sin(dA/2)+Math.cos(rad(a1))*Math.cos(rad(a2))*Math.sin(dO/2)*Math.sin(dO/2);
+    return 6371*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q)); }
+  function bearing(a1,o1,a2,o2){ var y=Math.sin(rad(o2-o1))*Math.cos(rad(a2));
+    var x=Math.cos(rad(a1))*Math.sin(rad(a2))-Math.sin(rad(a1))*Math.cos(rad(a2))*Math.cos(rad(o2-o1));
+    return COMPASS[Math.round(((Math.atan2(y,x)*180/Math.PI+360)%360)/45)%8]; }
+  var ONES=["","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"];
+  var TENS=["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+  function hundreds(x){ var o=[]; if(x>=100){ o.push(ONES[Math.floor(x/100)]+" hundred"); x%=100; }
+    if(x>=20) o.push(TENS[Math.floor(x/10)]+(x%10? "-"+ONES[x%10] : "")); else if(x>0) o.push(ONES[x]); return o.join(" "); }
+  function words(n){ n=Math.round(n); if(n===0) return "zero"; if(n<0) return "minus "+words(-n);
+    var o=[]; [[1e12,"trillion"],[1e9,"billion"],[1e6,"million"],[1e3,"thousand"]].forEach(function(s){ if(n>=s[0]){ o.push(hundreds(Math.floor(n/s[0]))+" "+s[1]); n%=s[0]; } });
+    if(n>0) o.push(hundreds(n)); return o.join(" "); }
+  // One decimal place, spoken: 25.9 -> "twenty-five point nine"
+  function wordsDec(x){ var r=Math.round(x*10)/10, w=Math.floor(r), d=Math.round((r-w)*10); return words(w)+(d? " point "+(ONES[d]||"zero") : ""); }
+  // Large numbers are written out in words; small ones stay as figures.
+  function big(n){ n=Math.round(n); return Math.abs(n)>=1000? words(n) : String(n); }
+
+  function dist(k){
+    if(k>=1e12) return wordsDec(k/1e12)+" trillion kilometres";
+    if(k>=1e9) return wordsDec(k/1e9)+" billion kilometres";
+    if(k>=1e6) return words(Math.round(k/1e6))+" million kilometres";
+    if(k>=1e4) return words(Math.round(k/1000)*1000)+" kilometres";
+    if(k<1) return Math.round(k*100)*10+" metres"; if(k<10) return (Math.round(k*10)/10)+" kilometres"; return big(k)+" kilometres"; }
+  function flow(v){ return v<10? String(Math.round(v*10)/10) : big(v); }
+  function ago(ms){ var h=ms/3600000; if(h<1) return Math.max(1,Math.round(ms/60000))+" minutes ago"; if(h<48) return Math.round(h)+(Math.round(h)===1?" hour ago":" hours ago"); return Math.round(h/24)+" days ago"; }
+  var STATES={AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",PR:"Puerto Rico"};
+  // USGS places read like "112 km NE of Hihifo, Tonga". Keep only the last part (a country, state or sea region),
+  // which is far easier to say aloud than the nearest village.
+  function region(place){
+    if(!place) return null;
+    var r=place.split(",").pop().trim().replace(/^\d+\s*km\s+[NSEW]{1,3}\s+of\s+/i,"");
+    if(STATES[r]) r=STATES[r];
+    if(!r || /\d/.test(r)) return null;
+    if(/\b(region|ridge|rise|sea|ocean|islands|coast|trench|gulf|strait|basin|zone)\b/i.test(r) && !/^the /i.test(r)) r="the "+r;
+    return r;
+  }
+
+  // ---- astronomy, computed here from standard orbital formulas (no network needed)
+  var AU=149597870.7, C_KMS=299792.458;
+  function days2000(ms){ return ms/86400000+2440587.5-2451545.0; }
+  function sunKm(ms){ var g=rad(357.529+0.98560028*days2000(ms)); return (1.00014-0.01671*Math.cos(g)-0.00014*Math.cos(2*g))*AU; }
+  function moonKm(ms){ var d=days2000(ms), Mp=rad(134.963+13.064993*d), M=rad(357.529+0.98560028*d), D=rad(297.850+12.190749*d);
+    return 385000.56-20905.355*Math.cos(Mp)-3699.111*Math.cos(2*D-Mp)-2955.968*Math.cos(2*D)-569.925*Math.cos(2*Mp)+48.888*Math.cos(M)
+      +246.158*Math.cos(2*D-2*Mp)-152.138*Math.cos(2*D-M-Mp)-170.733*Math.cos(2*D+Mp)-204.586*Math.cos(2*D-M)-129.620*Math.cos(Mp-M)+108.743*Math.cos(D)+104.755*Math.cos(Mp+M); }
+  // J2000 mean elements (a AU, e, i deg, L deg, L rate deg/century, longitude of perihelion, ascending node)
+  var PLANETS={earth:[1.00000261,0.01671123,-0.00001531,100.46457166,35999.37244981,102.93768193,0],
+    Venus:[0.72333566,0.00677672,3.39467605,181.97909950,58517.81538729,131.60246718,76.67984255],
+    Mars:[1.52371034,0.09339410,1.84969142,-4.55343205,19140.30268499,-23.94362959,49.55953891],
+    Jupiter:[5.20288700,0.04838624,1.30439695,34.39644051,3034.74612775,14.72847983,100.47390909],
+    Saturn:[9.53667594,0.05386179,2.48599187,49.95424423,1222.49362201,92.59887831,113.66242448],
+    Neptune:[30.06992276,0.00859048,1.77004347,-55.12002969,218.45945325,44.96476227,131.78422574]};
+  function helio(el,ms){
+    var T=days2000(ms)/36525, a=el[0], e=el[1], I=rad(el[2]), L=el[3]+el[4]*T, w=el[5], O=el[6];
+    var M=((L-w)%360+540)%360-180, om=rad(w-O), Om=rad(O), Mr=rad(M), E=Mr+e*Math.sin(Mr);
+    for(var k=0;k<8;k++) E=E-(E-e*Math.sin(E)-Mr)/(1-e*Math.cos(E));
+    var xp=a*(Math.cos(E)-e), yp=a*Math.sqrt(1-e*e)*Math.sin(E);
+    return [(Math.cos(om)*Math.cos(Om)-Math.sin(om)*Math.sin(Om)*Math.cos(I))*xp+(-Math.sin(om)*Math.cos(Om)-Math.cos(om)*Math.sin(Om)*Math.cos(I))*yp,
+            (Math.cos(om)*Math.sin(Om)+Math.sin(om)*Math.cos(Om)*Math.cos(I))*xp+(-Math.sin(om)*Math.sin(Om)+Math.cos(om)*Math.cos(Om)*Math.cos(I))*yp,
+            Math.sin(om)*Math.sin(I)*xp+Math.cos(om)*Math.sin(I)*yp];
+  }
+  function planetKm(name,ms){ var p=helio(PLANETS[name],ms), q=helio(PLANETS.earth,ms);
+    return Math.sqrt(Math.pow(p[0]-q[0],2)+Math.pow(p[1]-q[1],2)+Math.pow(p[2]-q[2],2))*AU; }
+  function lightTime(kmDist){ var sec=kmDist/C_KMS;
+    if(sec<60) return (Math.round(sec*10)/10)+" seconds";
+    var m=Math.floor(sec/60), r=Math.round(sec%60);
+    if(sec<3600) return m+(m===1?" minute":" minutes")+(r? " and "+r+(r===1?" second":" seconds") : "");
+    return dur(sec/60); }
+  function moved(kms, ms){ return dist(kms*Math.max(0,ms)/1000); }
+  // Voyager 1 is projected to be one light-day (25.9 billion km) from Earth in mid-November 2026, receding at about 17 km a second.
+  function voyagerKm(ms){ return 25902068371 + 17.0*(ms-Date.UTC(2026,10,15))/1000; }
+  // World population (UN World Population Prospects 2024: about 8.16 billion in mid-2025, growing by about 69 million a year;
+  // roughly 132 million births and 62 million deaths a year).
+  var WBIRTH=132e6/31557600000, WDEATH=62e6/31557600000;
+  function worldPop(ms){ return 8.16e9 + 69e6*(ms-Date.UTC(2025,6,1))/31557600000; }
+
+  function sunAlt(lat, lon, ms){
+    var d=days2000(ms), g=rad(357.529+0.98560028*d), L=280.459+0.98564736*d;
+    var lam=rad(L+1.915*Math.sin(g)+0.020*Math.sin(2*g)), eps=rad(23.439-0.00000036*d);
+    var dec=Math.asin(Math.sin(eps)*Math.sin(lam)), ra=Math.atan2(Math.cos(eps)*Math.sin(lam),Math.cos(lam));
+    var gmst=((18.697374558+24.06570982441908*d)%24+24)%24, ha=rad(gmst*15+lon)-ra;
+    return Math.asin(Math.sin(rad(lat))*Math.sin(dec)+Math.cos(rad(lat))*Math.cos(dec)*Math.cos(ha))*180/Math.PI;
+  }
+
+  function moon(ms){ var syn=29.530588853, ref=Date.UTC(2000,0,6,18,14);
+    var age=(((ms-ref)/86400000)%syn+syn)%syn;
+    var names=["a new moon","a waxing crescent","at first quarter","waxing gibbous","full","waning gibbous","at last quarter","a waning crescent"];
+    return {name:names[Math.floor((age/syn)*8+0.5)%8], lit:Math.round((1-Math.cos(2*Math.PI*age/syn))/2*100)}; }
+
+  // City wall-clock time from its IANA zone (falls back to the forecast's offset, then the device).
+  function clock(V, ms){
+    var tz=V.place.timezone;
+    if(tz){ try{
+      var p={}; new Intl.DateTimeFormat("en-GB",{timeZone:tz,hourCycle:"h23",hour:"2-digit",minute:"2-digit",weekday:"long",day:"numeric",month:"long",year:"numeric"})
+        .formatToParts(new Date(ms)).forEach(function(x){p[x.type]=x.value;});
+      if(p.hour) return {hm:p.hour+":"+p.minute, line:p.weekday+" "+p.day+" "+p.month+" "+p.year};
+    }catch(e){} }
+    var off = V.wx? V.wx.utc_offset_seconds||0 : -new Date().getTimezoneOffset()*60, w=wall(ms,off);
+    return {hm:hm(w), line:DAYS[w.getUTCDay()]+" "+w.getUTCDate()+" "+MONTHS[w.getUTCMonth()]+" "+w.getUTCFullYear()};
+  }
+  function T(t){return {t:t}}
+  function F(f){return {f:f, t:""}}
+
+  // ---------- sections ----------
+  function heading(V){
+    var P=V.place;
+    return [T("The forecast for "+P.name+(P.country? ", "+P.country : "")+"."),
+            F(function(ctx){ var c=clock(V,ctx.now); return "Issued at "+c.hm+", "+c.line+"."; })];
+  }
+
+
+  function nowSec(V){
+    var wx=V.wx; if(!wx||!wx.current) return [];
+    var c=wx.current, L=[T("Now.")];
+    if(sky(c.weather_code)) L.push(T(cap(sky(c.weather_code))+"."));
+    if(num(c.temperature_2m)!==null){
+      L.push(T("Temperature "+deg(c.temperature_2m)+" degrees."));
+      if(num(c.apparent_temperature)!==null && Math.abs(c.apparent_temperature-c.temperature_2m)>=2) L.push(T("Feels like "+deg(c.apparent_temperature)+"."));
+    }
+    if(num(c.wind_speed_10m)!==null){
+      var sp=Math.round(c.wind_speed_10m);
+      if(sp<2) L.push(T("Wind calm."));
+      else { L.push(T("Wind "+wind(c.wind_direction_10m)+", "+sp+" kilometres per hour."));
+        if(num(c.wind_gusts_10m)!==null && c.wind_gusts_10m-c.wind_speed_10m>=8) L.push(T("Gusting "+Math.round(c.wind_gusts_10m)+".")); }
+    }
+    if(num(c.relative_humidity_2m)!==null) L.push(T("Humidity "+Math.round(c.relative_humidity_2m)+" percent."));
+    if(num(c.cloud_cover)!==null) L.push(T("Cloud cover "+Math.round(c.cloud_cover)+" percent."));
+    return L;
+  }
+
+  function light(V){
+    var now=Date.now(), L=[], wx=V.wx, d=wx&&wx.daily, off=wx? wx.utc_offset_seconds||0 : 0;
+    if(d && d.sunset && d.sunset[0]){
+      var ss=inst(d.sunset[0],off), sr1=d.sunrise&&d.sunrise[1]? inst(d.sunrise[1],off) : null;
+      if(ss>now){ L.push(T("Sunset at "+hm(wall(ss,off))+".")); L.push(T("That is in "+dur((ss-now)/60000)+".")); }
+      else { L.push(T("The sun set at "+hm(wall(ss,off))+".")); L.push(T("That was "+dur((now-ss)/60000)+" ago.")); }
+      if(sr1) L.push(T("Sunrise tomorrow at "+hm(wall(sr1,off))+"."));
+      if(d.daylight_duration && d.daylight_duration[1]){
+        var diff=Math.round((d.daylight_duration[1]-d.daylight_duration[0])/60);
+        L.push(T(diff===0? "Tomorrow will be about as long as today." : "Tomorrow will be "+Math.abs(diff)+(Math.abs(diff)===1?" minute ":" minutes ")+(diff>0?"longer":"shorter")+" than today."));
+      }
+    }
+    var m=moon(now); L.push(T("The moon is "+m.name+". "+m.lit+" percent lit."));
+    return L;
+  }
+
+  function hours(V){
+    var wx=V.wx, h=wx&&wx.hourly; if(!h||!h.time) return [];
+    var off=wx.utc_offset_seconds||0, now=Date.now(), i0=-1;
+    for(var i=0;i<h.time.length;i++){ if(inst(h.time[i],off)>now){ i0=i; break; } }
+    if(i0<0) return [];
+    var L=[T("The next few hours.")];
+    [0,2,5].forEach(function(k){ var j=i0+k; if(j>=h.time.length) return;
+      var parts=[hm(wall(inst(h.time[j],off),off))+"."];
+      if(h.weather_code && sky(h.weather_code[j])) parts.push(cap(sky(h.weather_code[j]))+".");
+      if(h.temperature_2m && num(h.temperature_2m[j])!==null) parts.push(deg(h.temperature_2m[j])+" degrees.");
+      if(h.precipitation_probability && num(h.precipitation_probability[j])!==null) parts.push("Rain, "+Math.round(h.precipitation_probability[j])+" percent.");
+      L.push(T(parts.join(" "))); });
+    return L;
+  }
+
+  function past(V){
+    var L=[], first=true;
+    (V.past||[]).forEach(function(p){
+      if(num(p.max)===null) return;
+      var when=p.lastYear? "Last year" : (first? "On this date in "+p.year : "In "+p.year); first=false;
+      L.push(T(when+", the high was "+deg(p.max)+" degrees"+(num(p.min)!==null? " and the low was "+deg(p.min)+"." : ".")));
+      if(num(p.rain)!==null) L.push(T(p.rain>=0.5? "It rained "+Math.round(p.rain)+(Math.round(p.rain)===1?" millimetre.":" millimetres.") : "It did not rain."));
+    });
+    return L;
+  }
+
+  function ground(V){
+    var L=[], P=V.place, wx=V.wx;
+    if(wx && num(wx.elevation)!==null){ var el=Math.round(wx.elevation);
+      L.push(T(el>=0? P.name+" is "+el+" metres above sea level." : P.name+" is "+(-el)+" metres below sea level.")); }
+    var rv=V.river;
+    if(rv && num(rv.now)!==null && rv.now>=0.5){
+      L.push(T("The nearest river is carrying "+flow(rv.now)+" cubic metres of water a second."));
+      if(num(rv.max)!==null && rv.max>rv.now*1.15) L.push(T("This week it will rise to "+flow(rv.max)+"."));
+      else if(num(rv.min)!==null && rv.min<rv.now*0.85) L.push(T("This week it will fall to "+flow(rv.min)+"."));
+      else L.push(T("It will stay about the same this week."));
+    }
+    var qs=V.quakes;
+    if(qs && qs.length){
+      var near=null, big=null, now=Date.now();
+      qs.forEach(function(q){ q.d=km(P.latitude,P.longitude,q.lat,q.lon); if(!near||q.d<near.d) near=q; if(!big||q.mag>big.mag) big=q; });
+      L.push(T("This week there have been "+big(qs.length)+" earthquakes on Earth strong enough to feel, had they happened in "+P.name+"."));
+      L.push(T("The nearest was magnitude "+near.mag.toFixed(1)+", "+dist(near.d)+" "+bearing(P.latitude,P.longitude,near.lat,near.lon)+" of "+P.name+", "+ago(now-near.time)+"."));
+      if(big!==near) L.push(T("The strongest was magnitude "+big.mag.toFixed(1)+", "+dist(big.d)+" "+bearing(P.latitude,P.longitude,big.lat,big.lon)+" of "+P.name+"."));
+    }
+    return L;
+  }
+
+  function cemetery(V){
+    var cm=V.cemetery, P=V.place; if(!cm) return [];
+    var d=km(P.latitude,P.longitude,cm.lat,cm.lon), b=bearing(P.latitude,P.longitude,cm.lat,cm.lon);
+    if(cm.name) return [T("The nearest cemetery is "+cm.name+", "+dist(d)+" "+b+" of the centre of "+P.name+".")];
+    return [T("The nearest cemetery has no name on the map."), T("It is "+dist(d)+" "+b+" of the centre of "+P.name+".")];
+  }
+
+  function about(n){ n = n>=10000? Math.round(n/1000)*1000 : n>=1000? Math.round(n/100)*100 : Math.round(n); return big(n); }
+  function every(perday){ var m=1440/perday; return m>=1.5? "about every "+Math.round(m)+" minutes" : "about every "+Math.max(1,Math.round(m*60))+" seconds"; }
+  function pct(rate,ms){ var v=Math.round((1-Math.exp(-rate*Math.max(0,ms)))*100); if(v>=100) return "100 percent"; if(v<1) return "less than one percent"; return v+" percent"; }
+
+  function census(V){
+    var cen=V.census; if(!cen||!(cen.pop>0)) return [];
+    var C=V.place.name, dDay=cen.pop*cen.dr/1000/365.25, bDay=cen.pop*cen.br/1000/365.25, dMs=dDay/86400000, bMs=bDay/86400000;
+    function since(label, from, ctx){ var ms=ctx.now-from, dn=dMs*ms;
+      if(dn<1) return "The probability that someone in "+C+" has died "+label+": "+pct(dMs,ms)+".";
+      return cap(label)+", approximately "+about(dn)+(Math.round(dn)===1?" person has":" people have")+" died in "+C+"."; }
+    var A=[T("In "+C+" today, approximately "+about(dDay)+" people will die."), T("Approximately "+about(bDay)+" will be born."),
+           T("Someone dies in "+C+" "+every(dDay)+"."), T("Someone is born "+every(bDay)+".")];
+    var B=[F(function(ctx){ return since("since this forecast began", ctx.forecastStart, ctx); }),
+           F(function(ctx){ var ms=ctx.now-ctx.forecastStart, bn=bMs*ms;
+             return bn<1? "The probability that someone has been born since then: "+pct(bMs,ms)+"." : "Approximately "+about(bn)+(Math.round(bn)===1?" person has":" people have")+" been born."; })];
+    var R=[]; for(var r=0;r<3;r++) R.push(F(function(ctx){ return "The probability that someone in "+C+" has died since the last line: "+pct(dMs,ctx.now-ctx.lastShown)+"."; }));
+    var Y=[T("This week, approximately "+about(dDay*7)+" people will die in "+C+"."), T("This year, approximately "+about(dDay*365.25)+"."),
+           T("Approximately "+about(bDay*365.25)+" will be born.")];
+    return [A,B,R,Y];
+  }
+
+  function station(V){
+    var ok=false, P=V.place, crew=V.crew;
+    var L=[F(function(ctx){ return ctx.iss().then(function(p){ if(!p) return null; ok=true;
+              return "The International Space Station is "+dist(km(P.latitude,P.longitude,p.lat,p.lon))+" "+bearing(P.latitude,P.longitude,p.lat,p.lon)+" of "+P.name+", "+Math.round(p.alt)+" kilometres up."; }); }),
+           F(function(ctx){ return ok? "Since the last line, it has travelled "+dist(27600*(ctx.now-ctx.lastShown)/3600000)+"." : null; })];
+    var C=[];
+    if(crew && crew.iss && crew.iss.length){
+      var n=crew.iss.length;
+      C.push(T("There "+(n===1?"is one person":"are "+words(n)+" people")+" on board."));
+      if(crew.countries && crew.countries.length) C.push(T((n===1?"They come from ":"They come from ")+list(crew.countries)+"."));
+      if(num(crew.longestDays)!==null) C.push(T("The one who has been there longest arrived "+words(crew.longestDays)+" days ago."));
+      if(num(crew.newestDays)!==null && crew.newestDays!==crew.longestDays) C.push(T("The newest arrived "+(crew.newestDays===1? "yesterday" : words(crew.newestDays)+" days ago")+"."));
+    } else C.push(T("There are people on board."));
+    C.push(T("Today they will see about sixteen sunrises and sixteen sunsets."));
+    C.push(T("They sleep in bags fixed to the walls."));
+    C.push(T("Most of the water they drink was once their sweat, their breath or their urine."));
+    if(crew && crew.others>0) C.push(T("Elsewhere in orbit, "+(crew.others===1? "one more person is" : words(crew.others)+" more people are")+" in space."));
+    return [L,C];
+  }
+  function list(a){ return a.length<2? a.join("") : a.slice(0,-1).join(", ")+" and "+a[a.length-1]; }
+
+  function air(V){
+    var L=[], d=V.wx&&V.wx.daily, uv=d&&d.uv_index_max? num(d.uv_index_max[0]) : null;
+    if(uv!==null) L.push(T("The ultraviolet index today, "+(Math.round(uv*10)/10)+"."));
+    if(V.air && V.air.current && num(V.air.current.pm2_5)!==null) L.push(T("Fine particles in the air, "+Math.round(V.air.current.pm2_5)+" micrograms per cubic metre."));
+    return L;
+  }
+
+  // "Since this forecast began" is said in several ways, in turn, so it does not repeat.
+  var SINCE=["Since this forecast began","Since the first line","While this forecast has been read","In the time it has taken to read this far"], sinceN=0;
+  function since(){ return SINCE[(sinceN++)%SINCE.length]; }
+
+  function world(V){
+    var A=[F(function(ctx){ return "There are approximately "+words(Math.round(worldPop(ctx.now)/1e6)*1e6)+" people on Earth."; }),
+           T("Every second, approximately four are born and two die.")];
+    var B=[F(function(ctx){ return since()+", approximately "+about(WBIRTH*(ctx.now-ctx.forecastStart))+" people have been born on Earth."; }),
+           F(function(ctx){ return "Approximately "+about(WDEATH*(ctx.now-ctx.forecastStart))+" have died."; })];
+    return [A,B];
+  }
+
+  function spaceWeather(V){
+    var sw=V.space||{}, L=[];
+    if(num(sw.wind)!==null) L.push(T("Solar wind is reaching the Earth at "+Math.round(sw.wind)+" kilometres a second."));
+    if(num(sw.kp)!==null){ var k=Math.round(sw.kp); L.push(T("Geomagnetic activity, "+k+" on a scale of nine."+(k>=5?" There is a geomagnetic storm.":""))); }
+    if(num(sw.ssn)!==null) L.push(T("Last month's sunspot number was "+Math.round(sw.ssn)+"."));
+    return L;
+  }
+
+  function asteroids(V){
+    var a=V.neo; if(!a||!a.count) return [];
+    var L=[T("Today, "+a.count+(a.count===1?" asteroid is":" asteroids are")+" passing the Earth.")];
+    if(a.closest){ var c=a.closest;
+      L.push(T("The closest is about "+Math.round(c.size)+" metres across."));
+      L.push(T("It will pass at "+dist(c.km)+", travelling at "+big(Math.round(c.kmh/100)*100)+" kilometres per hour."));
+      var m=c.km/384400; L.push(T(m<1? "That is closer than the Moon." : "That is "+(m<10? Math.round(m*10)/10 : Math.round(m))+" times the distance to the Moon.")); }
+    return L;
+  }
+
+  function nearSpace(V){
+    var P=V.place, now=Date.now();
+    return [[T("The Moon is "+dist(moonKm(now))+" away."), T("Its light takes "+lightTime(moonKm(now))+" to reach "+P.name+"."),
+             T("The Sun is "+dist(sunKm(now))+" away."), T("Sunlight takes "+lightTime(sunKm(now))+" to reach "+P.name+"."),
+             F(function(ctx){ return since()+", the Earth has travelled "+moved(29.78,ctx.now-ctx.forecastStart)+" around the Sun."; })]];
+  }
+
+  function planets(V){
+    var now=Date.now(), L=[];
+    ["Venus","Mars","Jupiter","Saturn","Neptune"].forEach(function(n,i){ L.push(T(n+" is "+dist(planetKm(n,now))+(i===0? " from the Earth." : " away."))); });
+    L.push(T("Light from Neptune takes "+lightTime(planetKm("Neptune",now))+" to arrive."));
+    return L;
+  }
+
+  function voyager(V){
+    var now=Date.now(), k=voyagerKm(now);
+    return [T("Voyager 1 left the Earth in 1977."), T("It is now about "+dist(k)+" away."),
+            T((function(){ var h=k/C_KMS/3600; return "A signal from it takes "+(Math.abs(h-24)<0.5? "about a day" : "about "+Math.round(h)+" hours")+" to arrive."; })()),
+            F(function(ctx){ return since()+", it has travelled "+moved(17,ctx.now-ctx.forecastStart)+" further."; })];
+  }
+
+  function galaxy(V){
+    var P=V.place;
+    return [[F(function(ctx){ return since()+", the Sun has carried "+P.name+" "+moved(230,ctx.now-ctx.forecastStart)+" around the centre of the galaxy."; }),
+             F(function(ctx){ return "The Andromeda galaxy has come "+moved(110,ctx.now-ctx.forecastStart)+" closer."; }),
+             T("The light from Andromeda left it two and a half million years ago.")],
+            [T("The nearest star after the Sun is forty trillion kilometres away."), T("The universe is approximately thirteen point eight billion years old.")]];
+  }
+
+  /* ---------- belief ----------
+     Main religions by country, largest first, from Pew Research Center estimates (2020).
+     Levels: 4 about half, 3 most, 2 many, 1 some, 0 a few. Kept to words, not percentages. */
+  var PRED={C:"are Christian",M:"are Muslim",H:"are Hindu",B:"are Buddhist",J:"are Jewish",N:"belong to no religion",S:"are Sikh",F:"follow folk religions"};
+  var FAITH={ZA:"C3 N1",US:"C3 N2 J0 M0",GB:"C2 N2 M1",DE:"C2 N2 M1",FR:"C2 N2 M1",NL:"N3 C2 M1",BE:"C2 N2 M1",IT:"C3 N1",ES:"C3 N2",PT:"C3 N1",
+    CZ:"N3 C1",PL:"C3",AT:"C3 N2 M1",CH:"C3 N2 M1",SE:"C2 N2 M1",NO:"C3 N2",DK:"C3 N1",FI:"C3 N2",IE:"C3 N1",CA:"C3 N2 M1",AU:"C2 N2",NZ:"N3 C2",
+    KR:"N2 C2 B1",CN:"N3 F2 B1",HK:"N3 B1 C1",TW:"F2 B2 N1",BR:"C3 N1",MX:"C3",AR:"C3 N1",CL:"C3 N1",CO:"C3",PE:"C3",CU:"C3 N2 F1",
+    IN:"H3 M1 C0 S0",PK:"M3",BD:"M3 H1",NG:"M4 C4",KE:"C3 M1",GH:"C3 M1",ET:"C3 M2",TZ:"C3 M2",SN:"M3",EG:"M3 C1",MA:"M3",TR:"M3",IR:"M3",
+    SA:"M3",AE:"M3 C1 H1",IL:"J3 M1",JO:"M3",LB:"M2 C2",RU:"C3 N1 M1",UA:"C3",GR:"C3",RO:"C3",BG:"C3 M1",HR:"C3",RS:"C3",SK:"C3 N1",
+    ID:"M3 C1",MY:"M3 B1 C1 H0",SG:"B2 N2 C1 M1",TH:"B3",VN:"F2 N2 B1",PH:"C3",LK:"B3 H1 M0 C0",NP:"H3 B1"};
+  var THE={"United States":1,"United Kingdom":1,"Netherlands":1,"United Arab Emirates":1,"Philippines":1,"Czech Republic":1,"Czechia":0};
+  function countryName(P){ var c=P.country||""; return THE[c]? "the "+c : c; }
+
+  var BELIEFS={
+    C:[["Christians believe that a man died, and on the third day rose.","They believe the dead will rise too."],
+       ["Christians believe that each person has one life.","After it, judgement."]],
+    M:[["Muslims believe that every deed is written down.","On the last day, the deeds will be weighed."],
+       ["In Islam, the dead are buried as soon as possible.","They are laid on their right side, facing Mecca."]],
+    H:[["Many Hindus believe the self is not born and does not die.","It leaves one body and enters another,","the way a person puts on new clothes."],
+       ["In Hindu teaching, time moves in great circles.","A single day of the creator lasts more than four billion years."]],
+    B:[["Buddhists teach that nothing lasts.","Not the body. Not the self.","Not this sentence."],
+       ["Buddhists teach that suffering comes from wanting things to stay as they are."]],
+    J:[["In Judaism, after a death, the mourners stay at home for seven days.","Mirrors are often covered."],
+       ["Much of Jewish teaching is about how to live, more than about what comes after."]],
+    A:[["In many African traditions, the dead do not go far.","They become ancestors.","They are spoken to. They are asked for things."]],
+    JP:[["In Japan, during the summer festival of Obon, the dead are said to come home.","Lanterns are lit so they can find the way."]],
+    MX:[["In Mexico, on the Day of the Dead, families set out food for those who have died.","Marigolds mark the way."]],
+    F:[["In China, at the Qingming festival, families sweep the graves of their ancestors.","Paper money is burned for the dead."]],
+    S:[["Sikhs believe that God has no form, and is present in everything."]],
+    N:[["Some believe there is nothing after.","The light goes out.","The room stays."]],
+    W:[["The largest religion on Earth is Christianity.","The second is Islam.","The third is no religion at all."],
+       ["About one person in four on Earth belongs to no religion."]],
+    D:[["Some believe the dead are judged.","Some believe they return.","Some believe they stay nearby.","Some believe nothing happens at all."],
+       ["In some traditions, time is a line.","It has a beginning and an end.","In others, time is a circle."],
+       ["Christians, Muslims and Jews all trace their faith back to one man, Abraham."]]
+  };
+  function faithLines(P){
+    var cc=P.country_code, cn=countryName(P), L=[];
+    if(cc==="JP") return {lines:["Most people in Japan take part in both Shinto and Buddhist customs.","Many say they have no religion."], tag:"JP"};
+    var spec=FAITH[cc];
+    if(!spec || !cn) return {lines:BELIEFS.W[0].slice(), tag:"W"};
+    var parts=spec.split(" ");
+    parts.forEach(function(p,i){
+      var pr=PRED[p.charAt(0)], lv=+p.charAt(1);
+      if(i===0) L.push(lv===4? "About half the people in "+cn+" "+pr+"." : lv===3? "Most people in "+cn+" "+pr+"." : lv===2? "In "+cn+", many people "+pr+"." : "In "+cn+", some people "+pr+".");
+      else L.push((lv===4? "About half " : lv>=2? "Many " : lv===1? "Some " : "A few ")+pr+".");
+    });
+    if(cc==="ZA") L.push("Many also honour their ancestors.");
+    var tag=parts[0].charAt(0);
+    if(cc==="ZA") tag="A"; if(cc==="MX") tag="MX"; if(cc==="CN"||cc==="TW") tag="F";
+    return {lines:L, tag:tag};
+  }
+  function belief(V){
+    var f=faithLines(V.place), used=V.usedBelief={};
+    var own=(BELIEFS[f.tag]||BELIEFS.W)[0]; used[own.join("|")]=1; used[BELIEFS.D[0].join("|")]=1;
+    var blocks=[f.lines.map(T), own.map(T), BELIEFS.D[0].map(T)];
+    if(f.tag!=="W"){ blocks.splice(1,0,BELIEFS.W[0].map(T)); used[BELIEFS.W[0].join("|")]=1; }
+    return blocks;
+  }
+
+  /* ---------- the endless part ----------
+     After the opening sequence, blocks are drawn from several shuffled decks for as long as Space is pressed.
+     Local live lines come back often; the rest move between the planet, space, the body, facts and beliefs. */
+  var FACTS=[
+    ["The iron in your blood was made inside a star.","The star is gone."],
+    ["About one hundred and seventeen billion people have lived on Earth.","For each person alive now, about thirteen have died."],
+    ["If the Sun went out, no one here would know for about eight minutes."],
+    ["Every second, the Sun turns about four million tonnes of itself into light."],
+    ["The Moon is moving away from the Earth.","About four centimetres a year."],
+    ["The day is getting longer.","Not the daylight. The day itself.","The Earth turns a little more slowly each century."],
+    ["The lens of your eye is made of cells that are never replaced.","They are almost as old as you are."],
+    ["Most of the matter in the universe gives off no light.","It cannot be seen.","It is there."],
+    ["Sound does not travel through space.","The Sun makes no sound."],
+    ["A day on Venus is longer than its year."],
+    ["There is a tree in California more than four thousand years old.","Its exact location is kept secret."],
+    ["Every year, you pass the date of your death.","Nothing marks it."],
+    ["About three quarters of the sea floor has never been mapped in detail."],
+    ["Each Voyager spacecraft carries a golden record.","On it, greetings in fifty-five languages.","And the sound of a kiss."],
+    ["There are about as many bacterial cells in your body as human ones."],
+    ["A third of a life is spent asleep."],
+    ["Some of the starlight that reaches {city} left its star before anyone in this room was born."],
+    ["The coldest places known in the universe are in laboratories on Earth."],
+    ["There are more trees on Earth than stars in our galaxy."],
+    ["The deepest hole ever drilled is a little more than twelve kilometres deep.","It has been sealed with a metal cap."],
+    ["Time passes slightly more slowly near the floor than near the ceiling.","It has been measured."],
+    ["A clock on a mountain runs slightly faster than a clock in a valley."],
+    ["Most of an atom is empty space.","So is most of this room.","So are you."],
+    ["Most of the water in your body will be gone in a few weeks.","Other water will take its place."],
+    ["The hydrogen in your body is almost as old as the universe."],
+    ["The Earth is about four and a half billion years old.","The Sun has about five billion years left."],
+    ["In space, a candle flame is round."],
+    ["Everything you see is in the past.","The light has to travel.","Even across a room."],
+    ["The atoms in your body have been part of other things.","Rocks. Seawater. Other people."]
+  ];
+  var STILL=[
+    ["Somewhere in the city, a chair.","No one in it.","The chair is not waiting."],
+    ["Somewhere in the city, a door is closed.","Behind it, a room.","In the room, a lamp has been left on."],
+    ["Somewhere in the city, nothing happens.","Then the next thing."],
+    ["Somewhere in the city, a cup of coffee has gone cold.","No one drank it."],
+    ["Somewhere in the city, someone is standing at a window.","They are not looking at anything."],
+    ["Somewhere in the city, an empty road.","The white lines in the middle of it, one after another.","After another."],
+    ["Somewhere in the city, a telephone rings in an empty room.","It rings eleven times.","It stops."],
+    ["Somewhere in the city, the curtains move.","The window is closed."],
+    ["Somewhere in the city, an electric hum.","It has always been there.","Someone notices it now."],
+    ["Somewhere in the city, the same street.","The same light at the end of it.","A little later than before."],
+    ["Somewhere in the city, a refrigerator door closes.","The light inside goes out.","No one has ever seen it go out."],
+    ["Somewhere in the city, someone is waiting for a bus.","It is not their bus.","They wait anyway."],
+    ["Somewhere in the city, a room with the lights off.","The furniture is still there."],
+    ["Somewhere in the city, a television is on in an empty room.","A man on the screen is talking about the weather."],
+    ["Somewhere in the city, a dog is barking at a wall.","There is nothing on the other side.","It keeps barking."],
+    ["Somewhere in the city, a lift arrives on an empty floor.","The doors open.","The doors close."],
+    ["Somewhere in the city, a man is counting coins on a kitchen table.","He counts them again."],
+    ["Somewhere in the city, a tap is dripping.","Once every four seconds.","No one has fixed it."],
+    ["Somewhere in the city, a woman is folding a shirt that is not hers."],
+    ["Somewhere in the city, a car is parked with its engine running.","No one gets in.","No one gets out."],
+    ["Somewhere in the city, a light is flickering in a corridor.","It has been reported.","It is still flickering."],
+    ["Somewhere in the city, a child is drawing a house.","The house has no door."],
+    ["Somewhere in the city, a key is in a lock.","No one has turned it."],
+    ["Somewhere in the city, a radio is playing in a parked car.","The song ends.","Another begins."],
+    ["Somewhere in the city, a plate has been set for someone.","The food is cooling."],
+    ["Somewhere in the city, a clock is five minutes fast.","Everyone in the house knows.","No one changes it."],
+    ["Somewhere in the city, a woman is standing in a doorway.","She has forgotten why."],
+    ["Somewhere in the city, a bed has been made.","No one will sleep in it again."],
+    ["Somewhere in the city, a shoe in the road.","Only one."],
+    ["Somewhere in the city, a moth against a lamp.","Again.","And again."],
+    ["Somewhere in the city, a man is practising a speech in a mirror.","He stops in the middle of a sentence."],
+    ["Somewhere in the city, a balloon is caught in a tree.","It has been there for days."],
+    ["Somewhere in the city, a security guard watches a screen.","On the screen, an empty car park.","Nothing happens on the screen."],
+    ["Somewhere in the city, a letter lies on the mat inside a door.","It is face down."],
+    ["Somewhere in the city, an empty swimming pool.","The water is perfectly still.","The lights under the water are on."],
+    ["Somewhere in the city, someone has written a name on a misted mirror.","It is fading."],
+    ["Somewhere in the city, a vending machine hums in a corridor.","One of the lights inside it is out."],
+    ["Somewhere in the city, two people are sitting at a table.","They have stopped talking.","Neither of them leaves."],
+    ["Somewhere in the city, a dress is hanging on the back of a door.","It moves a little when the door moves."],
+    ["Somewhere in the city, a kettle has just boiled.","It clicks off.","Nobody comes."],
+    ["Somewhere in the city, a traffic light changes from red to green.","There are no cars.","It changes back."],
+    ["Somewhere in the city, a man is asleep in a chair with the television on."],
+    ["Somewhere in the city, a photograph has been turned to face the wall."],
+    ["Somewhere in the city, a voicemail is being played for the third time."],
+    ["Somewhere in the city, a train has just left.","No one on the platform got on."],
+    ["Somewhere in the city, a bird is sitting on a power line.","Then another.","Then the first one leaves."],
+    ["Somewhere in the city, an alarm is going off.","Nobody looks up."],
+    ["Somewhere in the city, a pair of glasses has been left on a bench."],
+    ["Somewhere in the city, a corridor.","Doors on both sides.","All of them closed."],
+    ["Somewhere in the city, someone is ironing a shirt for tomorrow."],
+    ["Somewhere in the city, a candle has burned down almost to the table.","The flame is very small."],
+    ["Somewhere in the city, an empty hospital corridor.","A trolley, with a folded blanket on it."],
+    ["Somewhere in the city, a man at a bus stop is holding a closed umbrella.","He has had it for years.","He has never opened it."],
+    ["Somewhere in the city, a woman is listening to a wall.","On the other side, a television."],
+    ["Somewhere in the city, a fan turns in a small room.","Left. Right. Left."],
+    ["Somewhere in the city, a glass of water on a bedside table.","Small bubbles have formed on the inside of the glass."],
+    ["Somewhere in the city, a light has been left on in a shop that is closed.","A mannequin in the window, one arm raised."],
+    ["Somewhere in the city, a car alarm stops.","The silence after it is louder."],
+    ["Somewhere in the city, a man is looking for his keys.","They are in his hand."],
+    ["Somewhere in the city, a staircase.","Someone is walking up it, slowly.","They stop on the landing."],
+    ["Somewhere in the city, a ceiling fan in an empty restaurant.","The chairs are on the tables."],
+    ["Somewhere in the city, a bath is running.","It is almost full."],
+    ["Somewhere in the city, someone is writing a list.","They cross something out.","They write it again."],
+    ["Somewhere in the city, a parcel has been left on a doorstep.","It is addressed to someone who moved away."],
+    ["Somewhere in the city, a hand on a light switch.","It does not turn the light off.","Not yet."],
+    ["Somewhere in the city, a jacket is on the back of a chair.","Its pockets are full."],
+    ["Somewhere in the city, a window is open on the fourth floor.","A curtain hangs out of it.","It does not move."],
+    ["Somewhere in the city, a petrol station that never closes.","The attendant is reading.","No one stops."],
+    ["Somewhere in the city, a woman is watering a plant that has died."],
+    ["Somewhere in the city, a man is sitting in his car outside his own house."],
+    ["Somewhere in the city, a smoke alarm chirps once.","A minute later, once again."],
+    ["Somewhere in the city, a calendar is on the wrong month."],
+    ["Somewhere in the city, a door to a garden is open.","A cat is deciding."],
+    ["Somewhere in the city, a child is asleep.","One sock has come off."],
+    ["Somewhere in the city, an office building.","On one floor, every chair is empty."],
+    ["Somewhere in the city, someone is holding a telephone, deciding."],
+    ["Somewhere in the city, a coat is in a lost property office.","There is a train ticket in the pocket."],
+    ["Somewhere in the city, an empty bench faces a wall.","Someone put it there on purpose."],
+    ["Somewhere in the city, a man is whistling the same four notes.","He does not know the rest."],
+    ["Somewhere in the city, a red light is blinking on top of a tall building.","On. Off. On."],
+    ["Somewhere in the city, a pot is on a stove with the heat turned off.","The lid is still warm."],
+    ["Somewhere in the city, a hallway mirror.","No one is in it."],
+    ["Somewhere in the city, a man is waiting for a call.","The telephone is face up on the table.","He does not look at it."],
+    ["Somewhere in the city, someone has stopped halfway up a ladder."],
+    ["Somewhere in the city, a dog is waiting by a door.","It has been waiting a long time."],
+    ["Somewhere in the city, a box of photographs in a cupboard.","Some of the people in them have no names now."],
+    ["Somewhere in the city, a nurse is washing her hands.","She does it slowly."],
+    ["Somewhere in the city, a street lamp hums.","Someone is standing under it."],
+    ["Somewhere in the city, the same song is playing in two different rooms.","Slightly out of time."],
+    ["Somewhere in the city, a pen has run out in the middle of a word."],
+    ["Somewhere in the city, someone is sweeping a floor that is already clean."],
+    ["Somewhere in the city, a woman is standing in a supermarket aisle.","She is holding two tins.","They are the same."],
+    ["Somewhere in the city, a car door is closed quietly, so as not to disturb anyone."],
+    ["Somewhere in the city, a bell rings in an empty school."],
+    ["Somewhere in the city, a pair of shoes has been left at the bottom of a staircase.","Side by side.","Pointing up."],
+    ["Somewhere in the city, a man is reading the same page of a book.","He has read it four times."],
+    ["Somewhere in the city, someone is sitting in the dark on purpose."],
+    ["Somewhere in the city, a gate swings open.","No one has touched it."],
+    ["Somewhere in the city, a door is opened.","No one comes through it."],
+    ["Somewhere in the city, a mirror in a lift.","A man is checking his teeth."],
+    ["Somewhere in the city, a table is laid for six.","There are five chairs."],
+    ["Somewhere in the city, a boiler clicks on.","The pipes begin to tick."],
+    ["Somewhere in the city, a man is standing among parked cars.","He presses his key.","Nothing flashes."]
+  ];
+
+  // Still lines come from one shuffled deck, shared by the opening sequence and the endless part.
+  // When the written still lines run out, new ones are put together from parts. Nothing is ever said twice in one run.
+  var S_THING=["a light is on","a chair has been turned to face the wall","a clock has stopped","a radio is playing quietly","a door is open",
+    "a glass is half full","a coat is hanging on a hook","a candle is burning","a curtain is drawn","a bulb is flickering","a window is open",
+    "a bag has been left","a television is on","a telephone is face down","a book lies open","a bed is unmade","a tap is running",
+    "a fan is turning","a mirror is covered","a key has been left","a suitcase stands by the door","a cigarette is burning in an ashtray",
+    "a jigsaw puzzle is almost finished","a pair of gloves lies on a table","a map is pinned to the wall","a cup is upside down on a saucer",
+    "a phone is charging","a blind is half down","a light is blinking on an answering machine","a plant leans toward the window"];
+  var S_PLACE=["in a kitchen","in a hotel room","in a stairwell","in a waiting room","in an office on the ninth floor","in a basement",
+    "in a laundrette","in a hospital ward","in a church hall","in a classroom","in a garage","in a back room","in a hallway",
+    "in a flat above a shop","in a room with no number","in a corridor","in a train station","in a police station",
+    "in a dentist's waiting room","in a room nobody uses","in a motel office","in a lighthouse","in an empty cinema",
+    "in a flat on the top floor","in a room at the end of a corridor","in a house for sale","in a lift that is not working","in a bus depot",
+    "in a closed museum","in a room where someone used to live"];
+  var S_CODA=["No one is there.","It has been like that for some time.","Nothing else happens.","It is still there.","Someone will notice later.",
+    "No one has noticed.","It is the only one.","It will be like that tomorrow.","There is a sound, then no sound.","Someone was there a moment ago.",
+    "A floorboard creaks.","The air does not move.","Outside, a car passes.","It is exactly as it was.","The room is waiting for something.",
+    "Later, it will still be there.","No one will remember it.","It is not important.","It is warm in there.","It is cold in there.",
+    "The light does not change.","Somebody left in a hurry.","Somebody left slowly.","A number is written on the wall.",
+    "The door is locked from the inside.","It happens every day.","It has never happened before.","There is a smell of oranges.",
+    "Nothing moves.","Something is missing.","Nobody is coming.","Somebody is coming.","Footsteps on the floor above.",
+    "No one is surprised.","A dog barks, far away.","The wallpaper is peeling at one corner.","It is quieter than it should be.",
+    "Someone has been asked to wait.","A tap is dripping somewhere.","A coin on the floor."];
+  function rnd(a){ return a[Math.floor(Math.random()*a.length)]; }
+  function stillMade(V){
+    var u=V.stillUsed||(V.stillUsed={}), first, tries=0;
+    do { first="Somewhere in the city, "+rnd(S_THING)+" "+rnd(S_PLACE)+"."; } while(u[first] && ++tries<400);
+    if(u[first]) return null; u[first]=1;
+    var c=V.codaLeft||(V.codaLeft=S_CODA.slice()), coda;
+    coda = c.length? [c.splice(Math.floor(Math.random()*c.length),1)[0]] : [];   // each ending is used once; after that, the scene stands alone
+    return [first].concat(coda).map(T);
+  }
+  function stillDraw(V){
+    if(!V.stillDeck){ var a=STILL.slice(); for(var k=a.length-1;k>0;k--){ var x=Math.floor(Math.random()*(k+1)), t=a[k]; a[k]=a[x]; a[x]=t; } V.stillDeck=a; }
+    if(V.stillDeck.length) return V.stillDeck.pop().map(T);
+    return stillMade(V) || [];
+  }
+  function still(V){ return stillDraw(V); }
+
+  function endless(V){
+    var P=V.place, decks={}, last=null, sinceHome=0, cityN=0, planetN=0, awayV=0;
+    function shuffle(a){ a=a.slice(); for(var k=a.length-1;k>0;k--){ var x=Math.floor(Math.random()*(k+1)), t=a[k]; a[k]=a[x]; a[x]=t; } return a; }
+    function draw(name, make){ if(!decks[name]||!decks[name].length) decks[name]=shuffle(make()); return decks[name].pop(); }
+    function lines(a){ return a.map(function(s){ return T(s.replace(/\{city\}/g,P.name)); }); }
+    function hourVal(key, now){ var wx=V.wx, h=wx&&wx.hourly, off=wx? wx.utc_offset_seconds||0 : 0; if(!h||!h.time||!h[key]) return null;
+      for(var i=h.time.length-1;i>=0;i--){ if(inst(h.time[i],off)<=now && num(h[key][i])!==null) return h[key][i]; } return null; }
+    function dMs(){ var c=V.census; return c&&c.pop>0? c.pop*c.dr/1000/365.25/86400000 : 0; }
+    function bMs(){ var c=V.census; return c&&c.pop>0? c.pop*c.br/1000/365.25/86400000 : 0; }
+    var turn=Math.round(1674.4*Math.cos(rad(P.latitude)));
+
+    var HOME=function(){ var a=[
+      function(){ return [F(function(ctx){ return "In "+P.name+", it is now "+clock(V,ctx.now).hm+"."; })]; },
+      function(){ return [F(function(ctx){ var a=sunAlt(P.latitude,P.longitude,ctx.now), r=Math.round(Math.abs(a));
+        return r===0? "Over "+P.name+", the Sun is on the horizon." : "Over "+P.name+", the Sun is "+r+(r===1?" degree ":" degrees ")+(a>0?"above":"below")+" the horizon."; })]; },
+      function(){ return [F(function(ctx){ var t=hourVal("temperature_2m",ctx.now); return t===null? null : "In "+P.name+", the temperature is "+deg(t)+(Math.abs(Math.round(t))===1?" degree.":" degrees."); })]; },
+      function(){ return [F(function(ctx){ var c=V.wx&&V.wx.current; if(!c||num(c.wind_speed_10m)===null) return null; var sp=Math.round(c.wind_speed_10m);
+        return sp<2? "There is no wind in "+P.name+"." : "The wind in "+P.name+" is "+wind(c.wind_direction_10m)+", "+sp+" kilometres per hour."; })]; },
+      function(){ return [F(function(ctx){ var d=V.wx&&V.wx.daily, off=V.wx? V.wx.utc_offset_seconds||0 : 0; if(!d||!d.sunrise) return null;
+        var ev=[]; for(var i=0;i<d.sunrise.length;i++){ if(d.sunrise[i]) ev.push(["Sunrise",inst(d.sunrise[i],off)]); if(d.sunset&&d.sunset[i]) ev.push(["Sunset",inst(d.sunset[i],off)]); }
+        ev=ev.filter(function(e){ return e[1]>ctx.now; }).sort(function(x,y){ return x[1]-y[1]; }); if(!ev.length) return null;
+        return ev[0][0]+" in "+P.name+" is in "+dur((ev[0][1]-ctx.now)/60000)+"."; })]; },
+      function(){ return [F(function(ctx){ var m=moon(ctx.now); return "The Moon over "+P.name+" is "+m.name+"."; })]; },
+      function(){ return turn>5? [F(function(ctx){ return since()+", "+P.name+" has turned "+dist(turn*(ctx.now-ctx.forecastStart)/3600000)+" to the east."; })] : []; },
+      function(){ return [F(function(ctx){ var r=dMs(); if(!r) return null; var ms=ctx.now-ctx.forecastStart, n=r*ms;
+        return n<1? "The probability that someone in "+P.name+" has died since the first line: "+pct(r,ms)+"."
+                  : since()+", approximately "+about(n)+(Math.round(n)===1?" person has":" people have")+" died in "+P.name+"."; })]; },
+      function(){ return [F(function(ctx){ var r=bMs(); if(!r) return null; var ms=ctx.now-ctx.forecastStart, n=r*ms;
+        return n<1? "The probability that someone in "+P.name+" has been born since the first line: "+pct(r,ms)+"."
+                  : since()+", approximately "+about(n)+(Math.round(n)===1?" person has":" people have")+" been born in "+P.name+"."; })]; },
+      function(){ return [F(function(ctx){ var r=dMs(); return r? "The probability that someone in "+P.name+" has died since the last line: "+pct(r,ctx.now-ctx.lastShown)+"." : null; })]; }
+    ];
+      if(V.cemetery){ var cm=V.cemetery, cd=km(P.latitude,P.longitude,cm.lat,cm.lon), cb=bearing(P.latitude,P.longitude,cm.lat,cm.lon);
+        a.push(function(){ return [T((cm.name? cm.name : "The nearest cemetery")+" is still "+dist(cd)+" "+cb+" of the centre of "+P.name+".")]; }); }
+      if(V.river && num(V.river.now)!==null && V.river.now>=0.5) a.push(function(){ return [T("The nearest river is still carrying "+flow(V.river.now)+" cubic metres of water a second.")]; });
+      return a; };
+
+    function loc(c){ return c.anti? "on the opposite side of the Earth from "+P.name : (c.at||"in "+c.name); }
+    function tempLine(c){ var t=Math.round(c.temp); return deg(t)+(Math.abs(t)===1?" degree.":" degrees."); }
+    function skyClause(code){ var k=sky(code);
+      return {"clear sky":"the sky is clear","mainly clear":"the sky is mostly clear","partly cloudy":"it is partly cloudy","overcast":"it is overcast",
+        "fog":"there is fog","thunderstorms":"there are thunderstorms","thunderstorms with hail":"there are thunderstorms, with hail"}[k] || (k? "there is "+k : "the sky is clear"); }
+    function weatherWord(c){ var x=+c.code; if((x>=51&&x<=67)||(x>=80&&x<=82)) return "raining"; if((x>=71&&x<=77)||x===85||x===86) return "snowing"; return null; }
+    function AWAY(){
+      var cs=(V.cities||[]).filter(function(c){ return c.name!==P.name && c.temp!=null; }); if(!cs.length) return [];
+      var c=cs[cityN++%cs.length], v=awayV++%4, sk=sky(c.code), w=weatherWord(c);
+      if(v===0) return [F(function(ctx){ return cap(loc(c))+", it is "+hm(wall(ctx.now,c.off))+"."; }), T((sk? cap(sk)+". " : "")+cap(tempLine(c)))];
+      if(v===1){ var L=[F(function(ctx){ return "It is "+hm(wall(ctx.now,c.off))+" "+loc(c)+"."; })];
+        L.push(T(c.anti? "Twenty thousand kilometres around the Earth. Twelve thousand seven hundred through it." : cap(c.name)+" is "+dist(km(P.latitude,P.longitude,c.lat,c.lon))+" "+bearing(P.latitude,P.longitude,c.lat,c.lon)+" of "+P.name+"."));
+        return L; }
+      if(v===2) return [F(function(ctx){ var a=sunAlt(c.lat,c.lon,ctx.now), r=Math.round(Math.abs(a));
+        return cap(loc(c))+", the Sun is "+(r===0? "on the horizon." : r+(r===1?" degree ":" degrees ")+(a>0?"above":"below")+" the horizon."); }), T("The temperature there is "+tempLine(c))];
+      return [T(w? "It is "+w+" "+loc(c)+"." : cap(loc(c))+", "+skyClause(c.code)+"."), F(function(ctx){ return "It is "+hm(wall(ctx.now,c.off))+" there."; })];
+    }
+
+    var OUT=function(){ var a=[
+      function(){ var ok=false; return [F(function(ctx){ return ctx.iss().then(function(p){ if(!p) return null; ok=true;
+          return "The International Space Station is "+dist(km(P.latitude,P.longitude,p.lat,p.lon))+" "+bearing(P.latitude,P.longitude,p.lat,p.lon)+" of "+P.name+"."; }); }),
+        F(function(ctx){ return ok? "Since the last line, it has travelled "+dist(27600*(ctx.now-ctx.lastShown)/3600000)+"." : null; })]; },
+      function(){ return [F(function(ctx){ return "The Sun is "+dist(sunKm(ctx.now))+" away."; }),
+        F(function(ctx){ return since()+", the Earth has travelled "+moved(29.78,ctx.now-ctx.forecastStart)+" around it."; })]; },
+      function(){ return [F(function(ctx){ return "The Moon is "+dist(moonKm(ctx.now))+" away."; }),
+        F(function(ctx){ return since()+", it has travelled "+moved(1.022,ctx.now-ctx.forecastStart)+" around the Earth."; })]; },
+      function(){ var pl=["Mars","Jupiter","Saturn","Venus","Neptune"][planetN++%5];
+        return [F(function(ctx){ return pl+" is "+dist(planetKm(pl,ctx.now))+" away."; }), F(function(ctx){ return "Its light takes "+lightTime(planetKm(pl,ctx.now))+" to reach "+P.name+"."; })]; },
+      function(){ return [F(function(ctx){ return "Voyager 1 is "+dist(voyagerKm(ctx.now))+" away."; }),
+        F(function(ctx){ return since()+", it has travelled "+moved(17,ctx.now-ctx.forecastStart)+" further."; })]; },
+      function(){ return [F(function(ctx){ return since()+", the Sun has carried "+P.name+" "+moved(230,ctx.now-ctx.forecastStart)+" around the centre of the galaxy."; })]; },
+      function(){ return [F(function(ctx){ return "The Andromeda galaxy has come "+moved(110,ctx.now-ctx.forecastStart)+" closer "+since().toLowerCase()+"."; })]; },
+      function(){ return [F(function(ctx){ return "There are approximately "+words(Math.round(worldPop(ctx.now)/1e6)*1e6)+" people on Earth."; })]; },
+      function(){ return [F(function(ctx){ return since()+", approximately "+about(WBIRTH*(ctx.now-ctx.forecastStart))+" people have been born on Earth, and "+about(WDEATH*(ctx.now-ctx.forecastStart))+" have died."; })]; },
+      function(){ return [F(function(ctx){ return "The probability that someone on Earth has been born since the last line: "+pct(WBIRTH,ctx.now-ctx.lastShown)+"."; })]; },
+      function(){ var qs=V.quakes||[]; return [F(function(ctx){ var last=null; qs.forEach(function(q){ if(!last||q.time>last.time) last=q; }); if(!last) return null;
+          return "The most recent earthquake was magnitude "+last.mag.toFixed(1)+", "+ago(ctx.now-last.time)+", "+dist(km(P.latitude,P.longitude,last.lat,last.lon))+" "+bearing(P.latitude,P.longitude,last.lat,last.lon)+" of "+P.name+"."; })]; }
+    ];
+      if(V.space && num(V.space.wind)!==null) a.push(function(){ return [T("Solar wind is reaching the Earth at "+Math.round(V.space.wind)+" kilometres a second."), T("It passes around us.")]; });
+      if(V.neo && V.neo.count) a.push(function(){ return [T("Today, "+V.neo.count+(V.neo.count===1?" asteroid is":" asteroids are")+" passing the Earth."), T("None of them is expected to hit it.")]; });
+      return a; };
+
+    var BODY=function(){ return [
+      function(){ return [F(function(ctx){ var n=70*(ctx.now-ctx.forecastStart)/60000; return n<2? null : since()+", your heart has beaten about "+big(n)+" times."; })]; },
+      function(){ return [F(function(ctx){ var n=15*(ctx.now-ctx.forecastStart)/60000; return n<2? null : since()+", you have breathed about "+big(n)+" times."; }), T("You did not notice.")]; },
+      function(){ return [F(function(ctx){ var n=15*(ctx.now-ctx.forecastStart)/60000; return n<2? null : "You have blinked about "+big(n)+" times "+since().toLowerCase()+"."; })]; },
+      function(){ return [T("Your body replaces about four million of its cells every second."), F(function(ctx){ return since()+", about "+words(Math.round(3.8e6*(ctx.now-ctx.forecastStart)/1e9)*1e6)+"."; })]; },
+      function(){ return [F(function(ctx){ var n=(ctx.now-ctx.forecastStart)/60000; return n<2? null : "Your blood has gone all the way around your body about "+big(n)+" times "+since().toLowerCase()+"."; })]; }
+    ]; };
+
+    var BEL=function(){ var all=[]; Object.keys(BELIEFS).forEach(function(k){ BELIEFS[k].forEach(function(b){ if(!(V.usedBelief||{})[b.join("|")]) all.push(b); }); });
+      return all.map(function(b){ return function(){ return lines(b); }; }); };
+
+    var MAKE={
+      home:  function(){ return draw("home", HOME)(); },
+      away:  AWAY,
+      out:   function(){ return draw("out", OUT)(); },
+      body:  function(){ return draw("body", BODY)(); },
+      fact:  function(){ return lines(draw("fact", function(){ return FACTS; })); },
+      still: function(){ return stillDraw(V); },
+      belief:function(){ return draw("belief", BEL)(); }
+    };
+    var WEIGHT={home:3, fact:2.5, away:2, out:2, belief:1.5, body:1, still:1.6};
+    function pick(){
+      if(sinceHome>=3) return "home";
+      var ks=Object.keys(WEIGHT).filter(function(k){ return k!==last && !(k==="away" && !(V.cities||[]).length); }), tot=0;
+      ks.forEach(function(k){ tot+=WEIGHT[k]; }); var r=Math.random()*tot;
+      for(var i=0;i<ks.length;i++){ r-=WEIGHT[ks[i]]; if(r<=0) return ks[i]; } return ks[0];
+    }
+    return { next:function(){ var k=pick(); last=k; sinceHome=(k==="home")? 0 : sinceHome+1; var b=MAKE[k](); return b&&b.length? b : MAKE.fact(); } };
+  }
+
+  var FAR = [
+    "Further outlook.",
+    "",
+    "The probability of rain in the next hour: {rainNextHour}.",
+    "The probability of rain tomorrow: {rainTomorrow}.",
+    "The probability of rain on {lastDay}: {rainLastDay}.",
+    "",
+    "The probability that {sunEvent}: 100 percent.",
+    "The probability that the sun rises over {city} for the next ten thousand years: close to 100 percent.",
+    "The probability that anyone in this room remembers this forecast in a year: low.",
+    "",
+    "Over long enough timescales, the probability of everything is 100 percent."
+  ].join("\n");
+
+  // A blank line in FAR starts a new block. A line whose data is missing is left out.
+  function far(V){
+    var wx=V.wx||{}, off=wx.utc_offset_seconds||0, now=Date.now(), h=wx.hourly, d=wx.daily;
+    var tk={city:V.place.name, rainNextHour:null, rainTomorrow:null, rainLastDay:null, lastDay:null, sunEvent:"the sun rises tomorrow"};
+    if(h&&h.time&&h.precipitation_probability){ for(var i=0;i<h.time.length;i++){ if(inst(h.time[i],off)>now){ if(num(h.precipitation_probability[i])!==null) tk.rainNextHour=Math.round(h.precipitation_probability[i])+" percent"; break; } } }
+    if(d&&d.time&&d.time.length>1){ var pm=d.precipitation_probability_max||[], lk=d.time.length-1;
+      if(num(pm[1])!==null) tk.rainTomorrow=Math.round(pm[1])+" percent";
+      tk.lastDay=DAYS[new Date(Date.parse(d.time[lk]+"T12:00:00Z")).getUTCDay()];
+      if(num(pm[lk])!==null) tk.rainLastDay=Math.round(pm[lk])+" percent"; }
+    if(d&&d.sunset&&d.sunset[0]&&inst(d.sunset[0],off)>now) tk.sunEvent="the sun sets tonight";
+    var blocks=[[]];
+    FAR.split("\n").forEach(function(raw){
+      if(!raw.trim()){ blocks.push([]); return; }
+      var miss=false, line=raw.replace(/\{(\w+)\}/g,function(_,k){ if(tk[k]===null){ miss=true; return ""; } return tk[k]; });
+      if(!miss) blocks[blocks.length-1].push(T(line));
+    });
+    return blocks;
+  }
+
+  return {heading:heading, now:nowSec, light:light, hours:hours, past:past, ground:ground, air:air, cemetery:cemetery, census:census, belief:belief, world:world,
+    station:station, spaceWeather:spaceWeather, asteroids:asteroids, nearSpace:nearSpace, planets:planets, voyager:voyager, galaxy:galaxy, far:far, still:still, endless:endless};
+})();
+/* ===================== END WRITER ===================== */
+
+if (typeof module !== "undefined") { module.exports = Writer; }
+else (function(){
+  var $=function(id){return document.getElementById(id)};
+  var store={get:function(k){try{return JSON.parse(localStorage.getItem("forecast3."+k))}catch(e){return null}},
+             set:function(k,v){try{localStorage.setItem("forecast3."+k,JSON.stringify(v))}catch(e){}}};
+
+  // Approximate crude birth and death rates per 1,000 a year (recent UN / national estimates). Check before use.
+  var RATES={ZA:[19,8.6],US:[11,10],GB:[10,9.5],DE:[8.6,12.4],FR:[10.5,9.8],NL:[9.4,9.8],BE:[9.8,10],IT:[6.7,12],ES:[6.7,9.5],PT:[8,11.5],
+    CZ:[8.5,11],PL:[7.4,11.5],AT:[8.7,10],CH:[9,8.5],SE:[9.5,9],NO:[9.5,8],DK:[9.8,10],FI:[8,11],IE:[10.5,6.8],CA:[9,8.3],AU:[11.5,7],NZ:[11.4,7],
+    JP:[6,12.9],KR:[4.5,7],BR:[12,7],MX:[14,7],AR:[10,7.5],IN:[16,7],CN:[6.4,7.9],NG:[35,12],KE:[27,5],"*":[17,7.6]};
+  var CAPE={name:"Cape Town",country:"South Africa",country_code:"ZA",admin1:"Western Cape",latitude:-33.9249,longitude:18.4241,population:4772846,timezone:"Africa/Johannesburg"};
+
+  // ---------- network ----------
+  function getJSON(u, ms){
+    var ctl=window.AbortController? new AbortController() : null, tm=ctl? setTimeout(function(){ ctl.abort(); }, ms||20000) : 0;
+    return fetch(u, ctl? {signal:ctl.signal} : {}).then(function(r){ clearTimeout(tm); if(!r.ok) throw new Error(r.status); return r.json(); },
+      function(e){ clearTimeout(tm); throw e; });
+  }
+  function soft(p){ return p.then(function(v){return v}, function(){ return null; }); }
+
+  function geocode(q){
+    var parts=q.split(",").map(function(s){return s.trim()}).filter(Boolean), name=parts[0], hint=(parts.slice(1).join(" ")||"").toLowerCase();
+    return getJSON("https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&format=json&name="+encodeURIComponent(name), 10000).then(function(j){
+      var rs=(j&&j.results)||[]; if(!rs.length) return null;
+      if(hint){ var m=rs.filter(function(r){ return [r.country,r.admin1,r.country_code].filter(Boolean).join(" ").toLowerCase().indexOf(hint)>=0; }); if(m.length) rs=m; }
+      var r=rs[0];
+      return {name:r.name, country:r.country, country_code:r.country_code, admin1:r.admin1, latitude:r.latitude, longitude:r.longitude, population:r.population, timezone:r.timezone};
+    });
+  }
+  function localYMD(tz){
+    try{ var s=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date()); var a=s.split("-"); if(a.length===3) return [+a[0],+a[1],+a[2]]; }catch(e){}
+    var d=new Date(); return [d.getFullYear(),d.getMonth()+1,d.getDate()];
+  }
+  function iso(y,m,d){ return y+"-"+(m<10?"0":"")+m+"-"+(d<10?"0":"")+d; }
+
+  function fetchWx(P){
+    return soft(getJSON("https://api.open-meteo.com/v1/forecast?latitude="+P.latitude+"&longitude="+P.longitude+"&timezone=auto&forecast_days=7"+
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m"+
+      "&hourly=temperature_2m,precipitation_probability,weather_code"+
+      "&daily=sunrise,sunset,daylight_duration,precipitation_probability_max,uv_index_max", 15000));
+  }
+  function fetchPast(P){
+    var t=localYMD(P.timezone), y=t[0], m=t[1], d=t[2], ll="latitude="+P.latitude+"&longitude="+P.longitude, years=[1946,1975,y-1];
+    return Promise.all(years.map(function(yr,i){
+      if(m===2 && d===29 && (yr%4!==0 || (yr%100===0 && yr%400!==0))) return Promise.resolve(null);
+      var day=iso(yr,m,d);
+      return soft(getJSON("https://archive-api.open-meteo.com/v1/archive?"+ll+"&timezone=auto&start_date="+day+"&end_date="+day+"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum")).then(function(j){
+        if(!j||!j.daily||!j.daily.temperature_2m_max||j.daily.temperature_2m_max[0]==null) return null;
+        return {year:yr, lastYear:i===2, max:j.daily.temperature_2m_max[0], min:j.daily.temperature_2m_min? j.daily.temperature_2m_min[0] : null, rain:j.daily.precipitation_sum? j.daily.precipitation_sum[0] : null};
+      });
+    })).then(function(rs){ return rs.filter(Boolean); });
+  }
+  function fetchRiver(P){
+    return soft(getJSON("https://flood-api.open-meteo.com/v1/flood?latitude="+P.latitude+"&longitude="+P.longitude+"&daily=river_discharge&forecast_days=7")).then(function(j){
+      var a=j&&j.daily&&j.daily.river_discharge; if(!a||a[0]==null) return null;
+      var rest=a.slice(1).filter(function(v){return v!=null});
+      return {now:a[0], max:rest.length?Math.max.apply(null,rest):null, min:rest.length?Math.min.apply(null,rest):null};
+    });
+  }
+  function fetchQuakes(){
+    return soft(getJSON("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson")).then(function(j){
+      if(!j||!j.features) return null;
+      return j.features.filter(function(f){ return f.properties && f.properties.mag!=null && f.geometry; }).map(function(f){
+        var pl=f.properties.place||"";
+        return {mag:f.properties.mag, time:f.properties.time, lon:f.geometry.coordinates[0], lat:f.geometry.coordinates[1], place:pl};
+      });
+    });
+  }
+  function fetchCemetery(P){
+    var a='(around:15000,'+P.latitude+','+P.longitude+')';
+    var q='[out:json][timeout:25];(nwr["landuse"="cemetery"]'+a+';nwr["amenity"="grave_yard"]'+a+';);out center tags 200;';
+    return soft(getJSON("https://overpass-api.de/api/interpreter?data="+encodeURIComponent(q), 35000)).then(function(j){
+      if(!j||!j.elements||!j.elements.length) return null;
+      var best=null, c=Math.cos(P.latitude*Math.PI/180);
+      j.elements.forEach(function(e){
+        var la=e.lat!=null?e.lat:(e.center&&e.center.lat), lo=e.lon!=null?e.lon:(e.center&&e.center.lon); if(la==null) return;
+        var d=Math.pow(la-P.latitude,2)+Math.pow((lo-P.longitude)*c,2);
+        if(!best||d<best.d) best={d:d, lat:la, lon:lo, name:(e.tags&&(e.tags["name:en"]||e.tags.name))||""};
+      });
+      return best;
+    });
+  }
+  function fetchAir(P){
+    return soft(getJSON("https://air-quality-api.open-meteo.com/v1/air-quality?latitude="+P.latitude+"&longitude="+P.longitude+"&current=pm2_5"));
+  }
+  // Space weather from the US National Oceanic and Atmospheric Administration. Rows may be arrays (with a header row) or objects.
+  function lastVal(rows, key, idx){
+    if(!Array.isArray(rows)) return null;
+    for(var i=rows.length-1;i>=0;i--){ var r=rows[i], v=Array.isArray(r)? r[idx] : r&&r[key];
+      if(v!=null && v!=="" && !isNaN(+v)) return +v; }
+    return null;
+  }
+  function fetchSpace(){
+    return Promise.all([
+      soft(getJSON("https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json")),
+      soft(getJSON("https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json")),
+      soft(getJSON("https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json"))
+    ]).then(function(r){
+      var o={wind:lastVal(r[0],"speed",2), kp:lastVal(r[1],"Kp",1)};
+      if(o.kp===null) o.kp=lastVal(r[1],"kp_index",1);
+      o.ssn=lastVal(r[2],"ssn",0);
+      return (o.wind===null&&o.kp===null&&o.ssn===null)? null : o;
+    });
+  }
+  // Asteroids passing today, from NASA's public Near Earth Object service (shared demonstration key).
+  function fetchNeo(P){
+    var t=localYMD(P.timezone), day=iso(t[0],t[1],t[2]);
+    return soft(getJSON("https://api.nasa.gov/neo/rest/v1/feed?start_date="+day+"&end_date="+day+"&api_key=DEMO_KEY", 15000)).then(function(j){
+      var list=j&&j.near_earth_objects&&j.near_earth_objects[day]; if(!list||!list.length) return null;
+      var best=null;
+      list.forEach(function(a){ var ca=a.close_approach_data&&a.close_approach_data[0]; if(!ca) return;
+        var k=+ca.miss_distance.kilometers; if(!best||k<best.km) best={km:k, kmh:+ca.relative_velocity.kilometers_per_hour,
+          size:a.estimated_diameter&&a.estimated_diameter.meters? (a.estimated_diameter.meters.estimated_diameter_min+a.estimated_diameter.meters.estimated_diameter_max)/2 : 0}; });
+      return {count:list.length, closest:best};
+    });
+  }
+  // Weather now in other places on Earth, in one request, for the endless part of the forecast.
+  var WORLD=[["Tokyo",35.68,139.69],["New York City",40.71,-74.01],["Paris",48.86,2.35],["London",51.51,-0.13],["Rome",41.90,12.50],
+    ["Berlin",52.52,13.41],["Madrid",40.42,-3.70],["Moscow",55.76,37.62],["Cairo",30.04,31.24],["Sydney",-33.87,151.21],
+    ["Toronto",43.65,-79.38],["Chicago",41.88,-87.63],["Los Angeles",34.05,-118.24],["Mexico City",19.43,-99.13],["Rio de Janeiro",-22.91,-43.17],
+    ["Buenos Aires",-34.60,-58.38],["Hong Kong",22.32,114.17],["Singapore",1.35,103.82],["Bangkok",13.76,100.50],["Seoul",37.57,126.98],
+    ["Beijing",39.90,116.41],["Dubai",25.20,55.27],["Delhi",28.61,77.21],["Miami",25.76,-80.19],["Vancouver",49.28,-123.12],
+    ["Athens",37.98,23.73],["Lisbon",38.72,-9.14],["Amsterdam",52.37,4.90],["Istanbul",41.01,28.98],["Lima",-12.05,-77.04],
+    ["the South Pole",-89.99,0.0,false,"at the South Pole"]];
+  function fetchCities(P){
+    var anti=[-P.latitude, P.longitude>0? P.longitude-180 : P.longitude+180];
+    var all=[["",anti[0],anti[1],true]].concat(WORLD);
+    var u="https://api.open-meteo.com/v1/forecast?latitude="+all.map(function(c){return c[1].toFixed(2)}).join(",")+
+      "&longitude="+all.map(function(c){return c[2].toFixed(2)}).join(",")+"&current=temperature_2m,weather_code&timezone=auto";
+    return soft(getJSON(u, 20000)).then(function(j){
+      if(!j) return null; if(!Array.isArray(j)) j=[j];
+      var out=[];
+      j.forEach(function(r,i){ var c=all[i]; if(!c||!r||!r.current) return;
+        out.push({name:c[0], lat:c[1], lon:c[2], anti:!!c[3], at:c[4], off:r.utc_offset_seconds||0, temp:r.current.temperature_2m, code:r.current.weather_code}); });
+      // the opposite side of the Earth comes first, then the rest in a shuffled order
+      var head=out.filter(function(c){return c.anti}), rest=out.filter(function(c){return !c.anti});
+      for(var k=rest.length-1;k>0;k--){ var x=Math.floor(Math.random()*(k+1)), t=rest[k]; rest[k]=rest[x]; rest[x]=t; }
+      return head.concat(rest);
+    });
+  }
+  // Who is in space, from a community-maintained public list.
+  var THE={"United States":1,"United Kingdom":1,"Netherlands":1,"United Arab Emirates":1,"Philippines":1,"Czech Republic":1};
+  function fetchCrew(){
+    return soft(getJSON("https://corquaid.github.io/international-space-station-APIs/JSON/people-in-space.json", 15000)).then(function(j){
+      var ppl=j&&(j.people||j.persons); if(!Array.isArray(ppl)||!ppl.length) return null;
+      var onISS=ppl.filter(function(x){ return x.iss===true || /iss|international/i.test(String(x.craft||"")); });
+      if(!onISS.length) return null;
+      var now=Date.now(), seen={}, countries=[], days=[];
+      onISS.forEach(function(x){
+        var c=String(x.country||"").trim();
+        if(/^(usa|us|united states of america)$/i.test(c)) c="United States"; if(/^uae$/i.test(c)) c="United Arab Emirates";
+        if(c && !seen[c]){ seen[c]=1; countries.push(THE[c]? "the "+c : c); }
+        var l=+x.launched; if(l>0){ if(l<1e12) l*=1000; days.push(Math.max(0,Math.floor((now-l)/86400000))); }
+      });
+      return {iss:onISS, countries:countries, others:ppl.length-onISS.length,
+        longestDays:days.length? Math.max.apply(null,days) : null, newestDays:days.length? Math.min.apply(null,days) : null};
+    });
+  }
+  var issCache=null;
+  function fetchISS(){
+    return soft(getJSON("https://api.wheretheiss.at/v1/satellites/25544", 5000)).then(function(j){
+      if(j && j.latitude!=null) issCache={lat:j.latitude, lon:j.longitude, alt:j.altitude};
+      return issCache;
+    });
+  }
+
+  // ---------- rehearsal data (type "rehearsal" as the city) ----------
+  function sampleWx(){
+    var off=7200, now=Date.now(), w=new Date(now+off*1000);
+    function ds(k){ return new Date(Date.UTC(w.getUTCFullYear(),w.getUTCMonth(),w.getUTCDate()+k)).toISOString().slice(0,10); }
+    var base=Date.UTC(w.getUTCFullYear(),w.getUTCMonth(),w.getUTCDate(),w.getUTCHours()), hrs=[], t=[], p=[], c=[];
+    for(var i=0;i<12;i++){ hrs.push(new Date(base+i*3600000).toISOString().slice(0,16)); t.push(21-i*.6); p.push([0,0,5,5,10,10,15,10,5,0,0,0][i]); c.push(i<4?1:2); }
+    return {utc_offset_seconds:off, elevation:25,
+      current:{temperature_2m:21.4,apparent_temperature:19.1,relative_humidity_2m:58,weather_code:1,cloud_cover:12,wind_speed_10m:31,wind_direction_10m:140,wind_gusts_10m:52},
+      hourly:{time:hrs,temperature_2m:t,precipitation_probability:p,weather_code:c},
+      daily:{time:[0,1,2,3,4,5,6].map(ds), sunrise:[0,1,2,3,4,5,6].map(function(k){return ds(k)+"T05:32"}), sunset:[0,1,2,3,4,5,6].map(function(k){return ds(k)+"T19:41"}),
+        daylight_duration:[50700,50760,50820,50880,50940,51000,51060], precipitation_probability_max:[5,10,35,70,20,0,5], uv_index_max:[9.8,9.1,6.2,4,8.7,10.2,10.4]}};
+  }
+  function sample(){
+    var now=Date.now(), y=new Date().getFullYear();
+    return {wx:sampleWx(),
+      past:[{year:1946,max:22.1,min:13.4,rain:0},{year:1975,max:19.6,min:12.2,rain:3.1},{year:y-1,lastYear:true,max:21.7,min:14.1,rain:0.2}],
+      river:{now:2.4,max:3.1,min:2.2},
+      quakes:[{mag:4.3,time:now-26*3600000,lat:-40.1,lon:27.8,place:"Prince Edward Islands region"},{mag:6.2,time:now-3*86400000,lat:-18.1,lon:-174.6,place:"112 km NE of Hihifo, Tonga"},{mag:3.1,time:now-5*3600000,lat:36.2,lon:-117.9,place:"12 km N of Ridgecrest, CA"}],
+      cemetery:{lat:-33.9306,lon:18.4893,name:"Maitland Cemetery"},
+      iss:{lat:-12.4,lon:61.3,alt:418},
+      air:{current:{pm2_5:7}},
+      space:{wind:438, kp:2.3, ssn:118},
+      neo:{count:9, closest:{km:2140000, kmh:41200, size:38}},
+      crew:{iss:[1,2,3,4,5,6,7], countries:["Russia","the United States","Japan"], others:3, longestDays:143, newestDays:12},
+      cities:[{name:"",anti:true,lat:33.92,lon:-161.58,off:-36000,temp:22.4,code:2},{name:"Tokyo",lat:35.68,lon:139.69,off:32400,temp:12.1,code:0},
+        {name:"Paris",lat:48.86,lon:2.35,off:3600,temp:9.4,code:61},{name:"New York City",lat:40.71,lon:-74.01,off:-18000,temp:6.2,code:2},
+        {name:"the South Pole",at:"at the South Pole",lat:-89.99,lon:0,off:46800,temp:-41.3,code:3}]};
+  }
+
+  // ---------- state ----------
+  var V=null, D=null, rehearsal=false;
+  var lines=[], idx=-1, queue=[], waiting=false, started=false, typing=null, hudTimer=null;
+  var forecastStart=0, lastShown=0;
+
+  function coords(la,lo){
+    function f(v,pos,neg){ return Math.abs(v).toFixed(4)+"° "+(v>=0?pos:neg); }
+    return f(la,"N","S")+"  "+f(lo,"E","W");
+  }
+  function hhmm(d){ return (d.getHours()<10?"0":"")+d.getHours()+":"+(d.getMinutes()<10?"0":"")+d.getMinutes(); }
+
+  // ---------- census inputs ----------
+  function readCensus(){
+    var pop=+String($("pop").value).replace(/[^\d.]/g,""), br=+$("br").value, dr=+$("dr").value;
+    return pop>0&&br>=0&&dr>=0 ? {pop:pop,br:br,dr:dr} : null;
+  }
+  function updateToll(){ var c=readCensus(); Score.setDeathRate(c? c.pop*c.dr/1000/365.25/86400000 : 0); }
+  function fillCensus(P){
+    var r=RATES[P.country_code]||RATES["*"];
+    $("pop").value=P.population? Math.round(P.population) : "";
+    $("br").value=r[0]; $("dr").value=r[1];
+    updateToll();
+  }
+  ["pop","dr"].forEach(function(id){ $(id).addEventListener("input",function(){ updateToll(); }); });
+
+  // ---------- landing ----------
+  var last=store.get("city"); if(last) $("city").value=last;
+  function msg(t,bad){ $("lmsg").textContent=t||""; $("lmsg").className=bad?"bad":""; }
+
+  $("lform").addEventListener("submit",function(e){
+    e.preventDefault();
+    var q=$("city").value.trim(); if(!q){ $("city").focus(); return; }
+    Score.start();                               // the click that began it lets sound play
+    try{ if(navigator.wakeLock) navigator.wakeLock.request("screen").catch(function(){}); }catch(err){}
+    if(q.toLowerCase()==="rehearsal"){ rehearsal=true; start(CAPE); return; }
+    rehearsal=false; $("begin").disabled=true; msg("Finding "+q+"…");
+    geocode(q).then(function(P){
+      $("begin").disabled=false;
+      if(!P){ msg("No place called \u201C"+q+"\u201D was found. Check the spelling, or add the country after a comma.",true); Score.stop(); return; }
+      store.set("city",q); msg(""); start(P);
+    }, function(){
+      $("begin").disabled=false; Score.stop();
+      msg("The city search could not be reached. Check the internet connection and try again. To rehearse offline, type rehearsal as the city.",true);
+    });
+  });
+
+  // Everything is requested at once. Each section waits only for its own data, so reading starts immediately
+  // and the slower sources (past years, the cemetery) arrive in the background while earlier lines are read.
+  var refresh=[], E=null;
+  function start(P){
+    refresh.forEach(clearInterval); refresh=[];
+    V={place:P};
+    fillCensus(P);
+    if(rehearsal){
+      var S=sample(), r=function(v){ return Promise.resolve(v); };
+      D={wx:r(S.wx), past:r(S.past), river:r(S.river), quakes:r(S.quakes), cemetery:r(S.cemetery), air:r(S.air), space:r(S.space), neo:r(S.neo), crew:r(S.crew), cities:r(S.cities)}; V.issSample=S.iss;
+    } else {
+      D={wx:fetchWx(P), past:fetchPast(P), river:fetchRiver(P), quakes:fetchQuakes(), cemetery:fetchCemetery(P), air:fetchAir(P), space:fetchSpace(), neo:fetchNeo(P), crew:fetchCrew(), cities:fetchCities(P)};
+      // keep the live data fresh for as long as the forecast runs
+      refresh.push(setInterval(function(){ fetchWx(P).then(function(v){ if(v) V.wx=v; }); fetchCities(P).then(function(v){ if(v) V.cities=v; }); }, 20*60000));
+      refresh.push(setInterval(function(){ fetchQuakes().then(function(v){ if(v) V.quakes=v; }); }, 10*60000));
+      fetchISS();
+    }
+    Object.keys(D).forEach(function(k){ D[k]=D[k].then(function(v){ V[k]=v; return v; }); });
+
+    queue=[
+      {need:[],                       make:Writer.heading},
+      {need:["wx"],                   make:Writer.now},
+      {need:[],                       make:Writer.still},
+      {need:["wx"],                   make:Writer.light},
+      {need:["wx"],                   make:Writer.hours},
+      {need:["past"],                 make:Writer.past},
+      {need:[],                       make:Writer.still},
+      {need:["wx","river","quakes"],  make:Writer.ground},
+      {need:["wx","air"],             make:Writer.air},
+      {need:["cemetery"],             make:Writer.cemetery},
+      {need:[],                       make:Writer.still},
+      {need:[],                       make:function(V){ V.census=readCensus(); return Writer.census(V); }},
+      {need:[],                       make:Writer.belief},
+      {need:[],                       make:Writer.still},
+      {need:[],                       make:Writer.world},
+      {need:["crew"],                 make:Writer.station},
+      {need:["space"],                make:Writer.spaceWeather},
+      {need:["neo"],                  make:Writer.asteroids},
+      {need:[],                       make:Writer.still},
+      {need:[],                       make:Writer.nearSpace},
+      {need:[],                       make:Writer.planets},
+      {need:[],                       make:Writer.voyager},
+      {need:[],                       make:Writer.galaxy},
+      {need:[],                       make:Writer.still},
+      {need:["wx"],                   make:Writer.far}
+    ];
+    E=null;
+    lines=[]; idx=-1; waiting=false; started=false;
+    togglePanel(false);
+    $("landing").style.display="none"; $("stage").classList.add("on");
+    $("scroll").innerHTML=""; $("ready").hidden=false;
+    $("hcity").textContent=P.name+(P.country? ", "+P.country : "");
+    $("lname").textContent=[P.name,P.admin1,P.country].filter(function(x,i,a){ return x && a.indexOf(x)===i; }).join(", ");
+    $("lcoords").textContent=coords(P.latitude,P.longitude);
+    $("hflag").textContent=rehearsal? "Rehearsal data" : ""; $("hflag").className=rehearsal? "flag" : "";
+    updHud(); pokeHud();
+  }
+
+  function exitStage(){
+    clearInterval(typing); typing=null; Score.stop(); refresh.forEach(clearInterval); refresh=[];
+    $("stage").classList.remove("on"); $("landing").style.display="";
+    if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){});
+    $("city").focus();
+  }
+
+  // ---------- reading ----------
+  function withTimeout(p, ms){ return Promise.race([p, new Promise(function(r){ setTimeout(function(){ r(null); }, ms); })]); }
+
+  function render(){
+    var box=$("scroll"); box.innerHTML="";
+    var from=Math.max(0,idx-7);
+    for(var i=from;i<=idx && i<lines.length;i++){
+      var el=document.createElement("div"); el.className="ln"+(lines[i].gap?" gap":"");
+      var age=idx-i; if(age>=5) el.classList.add("gone"); else if(age>=2) el.classList.add("old");
+      if(i===idx){ el.classList.add("now"); el.id="cur"; } else el.textContent=lines[i].t;
+      box.appendChild(el);
+    }
+    if(waiting && idx>=lines.length){            // waiting on data for the next section
+      var w=document.createElement("div"); w.className="ln now"+(lines.length?" gap":""); w.id="cur"; box.appendChild(w); appendCaret();
+    }
+    updHud();
+  }
+  function appendCaret(){ var c=document.createElement("span"); c.className="caret"; $("cur").appendChild(c); }
+
+  function next(){
+    if(waiting) return;
+    clearInterval(typing); typing=null;
+    if(idx+1<lines.length){ idx++; show(); return; }
+    if(!queue.length) queue.push({need:["cities","quakes"], make:function(V){ V.census=readCensus(); if(!E) E=Writer.endless(V); return [E.next()]; }});  // the forecast never ends
+    var sec=queue.shift();
+    waiting=true; idx=lines.length; render();
+    withTimeout(Promise.all(sec.need.map(function(k){ return D[k]; })), 40000).then(function(){
+      var out=[]; try{ out=sec.make(V)||[]; }catch(e){ out=[]; }
+      var blocks=Array.isArray(out[0])? out : [out];
+      blocks.forEach(function(b){ b=b.filter(Boolean); if(!b.length) return; b[0].gap=lines.length>0; b.forEach(function(l){ lines.push(l); }); });
+      waiting=false; idx--; next();
+    }, function(){ waiting=false; idx--; next(); });
+  }
+
+  function show(){
+    var ln=lines[idx], t=Date.now();
+    if(ln.f && !ln.done){
+      var ctx={now:t, lastShown:lastShown, forecastStart:forecastStart,
+        iss: rehearsal? function(){ return Promise.resolve(V.issSample); } : fetchISS};
+      var r; try{ r=ln.f(ctx); }catch(e){ r=null; }
+      if(r && typeof r.then==="function"){
+        waiting=true; var at=idx; render(); appendCaret();
+        withTimeout(r,6000).then(function(v){ return v; }, function(){ return null; }).then(function(v){
+          waiting=false; if(idx!==at) return;
+          if(v==null){ drop(); return; }
+          ln.t=v; ln.done=true; lastShown=Date.now(); render(); typeLine();
+        });
+        return;
+      }
+      if(r==null){ drop(); return; }
+      ln.t=r; ln.done=true;
+    }
+    lastShown=t; render(); typeLine();
+  }
+  function drop(){
+    var gone=lines.splice(idx,1)[0]; if(gone.gap && lines[idx]) lines[idx].gap=true;
+    idx--; next();
+  }
+  function back(){
+    if(waiting||idx<=0) return; clearInterval(typing); typing=null;
+    idx--; render(); $("cur").textContent=lines[idx].t; appendCaret();
+  }
+  function typeLine(){
+    var t=lines[idx].t, n=0, cur=$("cur"), txt=document.createTextNode("");
+    cur.appendChild(txt); appendCaret();
+    if(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches){ txt.data=t; return; }
+    typing=setInterval(function(){ n++; txt.data=t.slice(0,n); if(n>=t.length){ clearInterval(typing); typing=null; } }, 1000/22);
+  }
+  function finishTyping(){ clearInterval(typing); typing=null; $("cur").textContent=lines[idx].t; appendCaret(); }
+
+  function advance(){
+    if(!started){ started=true; forecastStart=Date.now(); lastShown=forecastStart; $("ready").hidden=true; next(); return; }
+    if(typing) finishTyping(); else next();
+  }
+  function updHud(){ $("hpos").textContent=started? Math.min(idx+1,lines.length)+" / "+lines.length+(queue.length?"+":"") : ""; }
+  function pokeHud(){ $("hud").classList.remove("hide"); clearTimeout(hudTimer); hudTimer=setTimeout(function(){ $("hud").classList.add("hide"); },3500); }
+
+  function togglePanel(open){
+    var p=$("panel"), o=(open===undefined)? p.hidden : open;
+    p.hidden=!o; $("stage").classList.toggle("panel-open",o);
+  }
+  $("close").onclick=function(e){ e.stopPropagation(); togglePanel(false); };
+  $("hscore").onclick=function(e){ e.stopPropagation(); togglePanel(); };
+  togglePanel(false);
+
+  if(store.get("size")) $("size").value=store.get("size");
+  function applySize(){ $("scroll").style.setProperty("--size",$("size").value); }
+  applySize(); $("size").addEventListener("change",function(){ store.set("size",$("size").value); applySize(); });
+
+  document.addEventListener("keydown",function(e){
+    if(!$("stage").classList.contains("on")) return;
+    var tg=e.target, typingField=tg && tg.tagName==="INPUT" && tg.type!=="range", k=e.key;
+    if(typingField){ if(k==="Escape") tg.blur(); return; }
+    var onRange=tg && tg.type==="range";
+    if(k===" "||k==="PageDown"||k==="Enter"||(!onRange&&(k==="ArrowRight"||k==="ArrowDown"))){ e.preventDefault(); advance(); }
+    else if(k==="PageUp"||(!onRange&&(k==="ArrowLeft"||k==="ArrowUp"))){ e.preventDefault(); if(started) back(); }
+    else if(k==="m"||k==="M"){ togglePanel(); }
+    else if(k==="f"||k==="F"){ var r=document.documentElement; if(!document.fullscreenElement && r.requestFullscreen) r.requestFullscreen().catch(function(){}); else if(document.exitFullscreen) document.exitFullscreen().catch(function(){}); }
+    else if(k==="Escape"){ exitStage(); return; }
+    pokeHud();
+  });
+  $("read").addEventListener("click",function(){ advance(); pokeHud(); });
+  $("panel").addEventListener("click",function(e){ e.stopPropagation(); });
+  document.addEventListener("mousemove",function(){ if($("stage").classList.contains("on")) pokeHud(); });
+
+  /* ============================================================
+     THE SCORE — a live ambient score made in the browser.
+     ============================================================ */
+  var Score=(function(){
+    var ac=null, N={}, timers=[], running=false, muted=false, deathRate=0;
+    var NOTES=["C","C♯","D","E♭","E","F","F♯","G","A♭","A","B♭","B"];
+    var DEF={level:.75, drone:1, pitch:5, bright:.35, drift:.7, choir:.07, harmonics:.56, bells:.1, toll:.8, space:1};
+    var P=Object.assign({}, DEF, store.get("sound2")||{});
+    var SL=[
+      ["level","Level",0,1,.01],["drone","Drone",0,1,.01],["pitch","Pitch",-12,12,1],["bright","Brightness",0,1,.01],
+      ["drift","Drift",0,1,.01],["choir","Choir",0,1,.01],["harmonics","Harmonics",0,1,.01],["bells","Bells",0,1,.01],
+      ["toll","Toll",0,1,.01],["space","Space",0,1,.01]];
+    function fmt(k,v){ if(k==="pitch"){ var s=9+Math.round(v); return NOTES[(s%12+12)%12]+(1+Math.floor(s/12)); } return Math.round(v*100); }
+    function root(){ return 55*Math.pow(2,P.pitch/12); }
+    function T(param,v,tc){ if(ac) param.setTargetAtTime(v, ac.currentTime, tc||0.4); }
+    function out(){ return muted? 0 : P.level*0.9; }
+
+    // sliders
+    var box=$("sliders");
+    SL.forEach(function(s){
+      var row=document.createElement("div"); row.className="sl";
+      row.innerHTML='<label for="s_'+s[0]+'">'+s[1]+'</label><input id="s_'+s[0]+'" type="range" min="'+s[2]+'" max="'+s[3]+'" step="'+s[4]+'"><output id="o_'+s[0]+'"></output>';
+      box.appendChild(row);
+      var inp=row.querySelector("input"), o=row.querySelector("output");
+      inp.value=P[s[0]]; o.textContent=fmt(s[0],P[s[0]]);
+      inp.addEventListener("input",function(){ P[s[0]]=+inp.value; o.textContent=fmt(s[0],P[s[0]]); store.set("sound2",P); apply(s[0]); });
+    });
+    function setSlider(k,v){ P[k]=v; var i=$("s_"+k); if(i){ i.value=v; $("o_"+k).textContent=fmt(k,v); } apply(k); }
+
+    function noiseBuf(brown){
+      var len=ac.sampleRate*4, b=ac.createBuffer(1,len,ac.sampleRate), d=b.getChannelData(0), l=0;
+      for(var i=0;i<len;i++){ var w=Math.random()*2-1; if(brown){ l=(l+0.02*w)/1.02; d[i]=l*3.5; } else d[i]=w; }
+      return b;
+    }
+    function impulse(sec){
+      var len=Math.floor(ac.sampleRate*sec), b=ac.createBuffer(2,len,ac.sampleRate);
+      for(var c=0;c<2;c++){ var d=b.getChannelData(c); for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3.2); }
+      return b;
+    }
+    function loop(buf){ var s=ac.createBufferSource(); s.buffer=buf; s.loop=true; s.start(); return s; }
+
+    function build(){
+      ac=new (window.AudioContext||window.webkitAudioContext)();
+      N.master=ac.createGain(); N.master.gain.value=0;
+      var comp=ac.createDynamicsCompressor(); comp.threshold.value=-18; comp.ratio.value=3;
+      N.master.connect(comp); comp.connect(ac.destination);
+      N.bus=ac.createGain(); N.dry=ac.createGain(); N.wet=ac.createGain(); N.verb=ac.createConvolver(); N.verb.buffer=impulse(6);
+      N.bus.connect(N.dry); N.bus.connect(N.verb); N.verb.connect(N.wet); N.dry.connect(N.master); N.wet.connect(N.master);
+
+      // drone: four slowly breathing voices through one wandering low-pass filter
+      N.dFilter=ac.createBiquadFilter(); N.dFilter.type="lowpass"; N.dFilter.Q.value=0.7;
+      N.dGain=ac.createGain(); N.dFilter.connect(N.dGain); N.dGain.connect(N.bus);
+      N.fLfo=ac.createOscillator(); N.fLfo.frequency.value=0.021; N.fDepth=ac.createGain(); N.fLfo.connect(N.fDepth); N.fDepth.connect(N.dFilter.frequency); N.fLfo.start();
+      var lv=[.5,.32,.26,.12];
+      N.voices=[1,1.5,2,3].map(function(ratio,i){
+        var g=ac.createGain(); g.gain.value=lv[i]; g.connect(N.dFilter);
+        var oscs=["sine","triangle"].map(function(type){ var x=ac.createOscillator(); x.type=type; x.frequency.value=root()*ratio; x.connect(g); x.start(); return x; });
+        var lfo=ac.createOscillator(); lfo.frequency.value=0.03+i*0.017; var dep=ac.createGain(); lfo.connect(dep);
+        dep.connect(oscs[0].detune); var inv=ac.createGain(); inv.gain.value=-1; dep.connect(inv); inv.connect(oscs[1].detune); lfo.start();
+        var amp=ac.createOscillator(); amp.frequency.value=0.011+i*0.007; var ampD=ac.createGain(); amp.connect(ampD); ampD.connect(g.gain); amp.start();
+        return {ratio:ratio, oscs:oscs, dep:dep, ampD:ampD, base:lv[i]};
+      });
+
+      // choir: three sawtooth voices through two vowel formants that slowly move between "ah" and "oo"
+      N.cGain=ac.createGain(); N.cGain.gain.value=0; N.cGain.connect(N.bus);
+      N.cF1=ac.createBiquadFilter(); N.cF1.type="bandpass"; N.cF1.Q.value=6; N.cF1.frequency.value=700;
+      N.cF2=ac.createBiquadFilter(); N.cF2.type="bandpass"; N.cF2.Q.value=8; N.cF2.frequency.value=1150;
+      N.cSum=ac.createGain(); N.cF1.connect(N.cGain); N.cF2.connect(N.cGain);
+      N.cSum.connect(N.cF1); var f2g=ac.createGain(); f2g.gain.value=0.5; N.cSum.connect(f2g); f2g.connect(N.cF2);
+      N.cSwell=ac.createGain(); N.cSwell.gain.value=0.6; N.cSwell.connect(N.cSum);
+      var sw=ac.createOscillator(); sw.frequency.value=0.017; var swd=ac.createGain(); swd.gain.value=0.4; sw.connect(swd); swd.connect(N.cSwell.gain); sw.start();
+      N.choir=[2,3,4].map(function(ratio,i){
+        var o=ac.createOscillator(); o.type="sawtooth"; o.frequency.value=root()*ratio; o.detune.value=[-6,4,9][i];
+        var g=ac.createGain(); g.gain.value=[.5,.35,.25][i]; o.connect(g); g.connect(N.cSwell); o.start();
+        var v=ac.createOscillator(); v.frequency.value=4.6+i*0.4; var vd=ac.createGain(); vd.gain.value=5; v.connect(vd); vd.connect(o.detune); v.start();
+        return {o:o, ratio:ratio};
+      });
+
+      // harmonics and bells each have their own long, dark reverb, separate from Space
+      N.hall=ac.createConvolver(); N.hall.buffer=impulse(11);
+      N.hallTone=ac.createBiquadFilter(); N.hallTone.type="lowpass"; N.hallTone.frequency.value=2600;
+      N.hallOut=ac.createGain(); N.hallOut.gain.value=1.2;
+      N.hall.connect(N.hallTone); N.hallTone.connect(N.hallOut); N.hallOut.connect(N.master);
+      N.hallDry=ac.createGain(); N.hallDry.gain.value=0.18; N.hallDry.connect(N.master);
+      N.hallIn=ac.createGain(); N.hallIn.connect(N.hall); N.hallIn.connect(N.hallDry);
+      N.bellIn=ac.createGain(); N.bellIn.connect(N.hall); var bd=ac.createGain(); bd.gain.value=0.05; N.bellIn.connect(bd); bd.connect(N.master);
+
+      SL.forEach(function(s){ apply(s[0]); });
+    }
+
+    function apply(k){
+      if(!ac) return;
+      if(k==="level"&&running) T(N.master.gain, out(), 0.3);
+      if(k==="drone") T(N.dGain.gain, P.drone*0.35);
+      if(k==="pitch") N.voices.forEach(function(v){ v.oscs.forEach(function(x){ T(x.frequency, root()*v.ratio, 1.2); }); });
+      if(k==="bright"){ var f=150*Math.pow(40,P.bright); T(N.dFilter.frequency, f, 1); T(N.fDepth.gain, f*0.35, 1); }
+      if(k==="drift") N.voices.forEach(function(v){ T(v.dep.gain, 2+P.drift*28, 1); T(v.ampD.gain, v.base*P.drift*0.6, 1); });
+      if(k==="choir") T(N.cGain.gain, P.choir*0.9, 0.8);
+      if(k==="pitch"&&N.choir) N.choir.forEach(function(c){ T(c.o.frequency, root()*c.ratio, 1.2); });
+      if(k==="space"){ T(N.wet.gain, P.space*1.1, 0.5); T(N.dry.gain, 1-P.space*0.55, 0.5); }
+    }
+
+    function bell(freq, gain, decay, dest){
+      var t=ac.currentTime, g=ac.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(gain,t+0.015); g.gain.exponentialRampToValueAtTime(0.0001,t+decay);
+      g.connect(dest||N.bus);
+      [[1,1],[2.76,.32],[5.4,.12],[8.93,.04]].forEach(function(p){ var o=ac.createOscillator(); o.frequency.value=freq*p[0];
+        var pg=ac.createGain(); pg.gain.value=p[1]; o.connect(pg); pg.connect(g); o.start(t); o.stop(t+decay+0.1); });
+    }
+    // one overtone of the drone that rises, holds and fades, like a string's harmonic under a sustained bow
+    function harmonic(){
+      var n=[3,4,5,6,7,8,9][Math.floor(Math.random()*7)], t=ac.currentTime, up=4+Math.random()*5, hold=3+Math.random()*6, down=6+Math.random()*8;
+      var o=ac.createOscillator(); o.frequency.value=root()*n; o.detune.value=(Math.random()-0.5)*8;
+      var g=ac.createGain(), peak=(0.05+P.harmonics*0.09)/Math.sqrt(n/3);
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(peak,t+up); g.gain.setValueAtTime(peak,t+up+hold); g.gain.linearRampToValueAtTime(0,t+up+hold+down);
+      o.connect(g); g.connect(N.hallIn); o.start(t); o.stop(t+up+hold+down+0.2);
+    }
+
+    function schedule(){
+      timers.push(setInterval(function(){               // bells: sparse, low, in their own hall
+        if(P.bells>0.01 && Math.random()<P.bells*0.1){
+          var steps=[0,3,5,7,10,12], st=steps[Math.floor(Math.random()*steps.length)];
+          bell(root()*4*Math.pow(2,st/12), 0.025+P.bells*0.05, 6+Math.random()*5, N.bellIn);
+        }
+      },1000));
+      timers.push(setInterval(function(){               // harmonics
+        if(P.harmonics>0.01 && Math.random()<P.harmonics*0.3) harmonic();
+      },2500));
+      timers.push(setInterval(function(){               // toll: one stroke per estimated death in the city
+        if(deathRate>0 && P.toll>0.01 && Math.random() < 1-Math.exp(-deathRate*1000)) bell(root()*2, 0.12+P.toll*0.35, 14);
+      },1000));
+    }
+
+    return {
+      start:function(){
+        try{ if(!ac) build(); }catch(e){ return; }
+        if(ac.state==="suspended") ac.resume();
+        if(running) return; running=true;
+        N.master.gain.cancelScheduledValues(ac.currentTime);
+        N.master.gain.setTargetAtTime(out(), ac.currentTime, 2.5);   // a slow fade in
+        schedule();
+      },
+      stop:function(){
+        if(!ac||!running) return; running=false;
+        timers.forEach(clearInterval); timers=[];
+        N.master.gain.cancelScheduledValues(ac.currentTime); N.master.gain.setTargetAtTime(0, ac.currentTime, 0.8);
+      },
+      mute:function(m){ muted=m; if(ac&&running) N.master.gain.setTargetAtTime(out(), ac.currentTime, 0.3); },
+      setDeathRate:function(perMs){ deathRate=perMs; },
+      get:function(k){ return P[k]; }
+    };
+  })();
+
+
+  var muted=false;
+  $("mute").onclick=function(e){ e.stopPropagation(); muted=!muted; this.setAttribute("aria-pressed",String(muted)); this.textContent=muted?"Unmute":"Mute"; Score.mute(muted); };
+})();
+</script>
+</body>
+</html>
